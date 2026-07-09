@@ -1,7 +1,7 @@
 'use client'
 import { useState } from 'react'
-import { readBalance } from '@/lib/readBalance'
-import { useAccount, useConnect, useDisconnect, useReadContract, useSendTransaction, useSimulateContract, useSwitchChain, useWaitForTransactionReceipt, useWriteContract } from 'wagmi'
+import { readSepoliaBalance, useMultiChainBalance } from '@/lib/readBalance'
+import { useConnection, useConnect, useDisconnect, useReadContract, useSendTransaction, useSimulateContract, useSwitchChain, useWaitForTransactionReceipt, useWriteContract } from 'wagmi'
 import { erc20Abi, parseEther } from 'viem';
 import { mainnet, sepolia } from 'viem/chains';
 
@@ -44,12 +44,14 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null)
   const [showModal, setShowModal] = useState(false)
 
-  const { address, isConnected } = useAccount()
+  const { address, isConnected } = useConnection()
   const { connect, connectors } = useConnect()
   const { disconnect } = useDisconnect()
 
   const { writeContract, data: hash, error: writeError } = useWriteContract()
   const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({ hash })
+
+  const { sepoliaBalance, baseBalance, loading: multiChainLoading, error: multiChainError } = useMultiChainBalance()
 
   const { data: tokenBalance } = useReadContract({
     address: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238' as `0x${string}`,
@@ -76,7 +78,7 @@ export default function Home() {
     setLoading(true)
     setError(null)
     try {
-      const result = await readBalance(address || '')
+      const result = await readSepoliaBalance(address || '')
       setBalance(result)
     } catch (err) {
 
@@ -203,6 +205,9 @@ export default function Home() {
       {loading && <p>加载中...</p>}
       {error && <p className="text-red-500">{error}</p>}
       {balance && <p>余额: {balance} ETH</p>}
+      <h2 className="font-semibold pt-2">多链余额</h2>
+      {sepoliaBalance && <p>Sepolia 余额: {sepoliaBalance} ETH</p>}
+      {baseBalance && <p>Base 余额: {baseBalance} ETH</p>}
       {showModal && <Modal address={address} onClose={() => setShowModal(false)} />}
     </div>
   )
