@@ -4,6 +4,7 @@ import { readSepoliaBalance, useMultiChainBalance } from '@/lib/readBalance'
 import { useConnection, useConnect, useDisconnect, useReadContract, useSendTransaction, useSimulateContract, useSwitchChain, useWaitForTransactionReceipt, useWriteContract } from 'wagmi'
 import { erc20Abi, parseEther } from 'viem';
 import { mainnet, sepolia } from 'viem/chains';
+import { AssetCard } from '@/components/ui/AssetCard';
 
 function Modal({ address, onClose }: { address: `0x${string}` | undefined; onClose: () => void }) {
   return (
@@ -90,7 +91,6 @@ export default function Home() {
 
   async function handleConnect() {
     if (isConnected) {
-      setShowModal(true)
       return
     }
     try {
@@ -156,8 +156,36 @@ export default function Home() {
   return (
     <div className="p-6 space-y-4">
       <div className="space-x-2">
-        <button onClick={handleConnect}>连接钱包</button>
-        <button onClick={handleCheck}>查询余额</button>
+        {
+          isConnected ? (
+            <button className="text-red-500" onClick={handleDisconnect}>断开连接</button>
+          ) : (
+            <button onClick={handleConnect}>连接钱包</button>
+          )
+        }
+
+        {
+          isConnected && address && (
+            <div>
+              <p className="font-mono text-sm">已连接: {address}</p>
+              <button onClick={handleCheck}>查询余额</button>
+              <AssetCard
+                chainName="Sepolia"
+                balance={sepoliaBalance}
+                isLoading={multiChainLoading}
+                error={multiChainError?.sepolia}
+              />
+              <AssetCard
+                chainName="Base"
+                balance={baseBalance}
+                isLoading={multiChainLoading}
+                error={multiChainError?.base}
+              />
+            </div>
+          )
+        }
+
+
         {
           isConfirming ? (
             <button disabled>确认中...</button>
@@ -172,6 +200,7 @@ export default function Home() {
             <button onClick={handleSendETH}>发送ETH</button>
           )
         }
+
         {simulateError && <p className="text-orange-500">预计会失败，暂时无法转账</p>}
         {writeError && <p className="text-red-500">{getErrorMessage(writeError)}</p>}
         {isConfirmed && <p className="text-green-500">转账成功!</p>}
@@ -181,6 +210,8 @@ export default function Home() {
             <button onClick={handleTransfer}>重试</button>
           </div>
         )}
+
+
         <button onClick={() => switchChain({ chainId: mainnet.id })} disabled={isSwitchingChain}>
           {isSwitchingChain ? '切换中...' : '切到主网'}
         </button>
@@ -189,25 +220,18 @@ export default function Home() {
         </button>
         {switchChainError && <p className="text-red-500">切换网络失败: {switchChainError.message}</p>}
       </div>
+
+
       <div>
         <p>
           {tokenBalance !== undefined ? `USDC余额(原始): ${tokenBalance}` : '未查询到余额'}
         </p>
       </div>
 
-      {isConnected && (
-        <div>
-          <p>地址: {address}</p>
-          <button onClick={handleDisconnect}>断开</button>
-        </div>
-      )}
-
       {loading && <p>加载中...</p>}
       {error && <p className="text-red-500">{error}</p>}
       {balance && <p>余额: {balance} ETH</p>}
-      <h2 className="font-semibold pt-2">多链余额</h2>
-      {sepoliaBalance && <p>Sepolia 余额: {sepoliaBalance} ETH</p>}
-      {baseBalance && <p>Base 余额: {baseBalance} ETH</p>}
+
       {showModal && <Modal address={address} onClose={() => setShowModal(false)} />}
     </div>
   )
