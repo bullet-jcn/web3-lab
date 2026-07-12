@@ -1,6 +1,6 @@
 'use client'
 import { useState } from 'react'
-import { readSepoliaBalance, useMultiChainBalance } from '@/lib/readBalance'
+import { useMultiChainBalance } from '@/lib/hooks/useMultiChainBalance'
 import { useConnection, useConnect, useDisconnect, useReadContract, useSendTransaction, useSimulateContract, useSwitchChain, useWaitForTransactionReceipt, useWriteContract } from 'wagmi'
 import { erc20Abi, parseEther } from 'viem';
 import { mainnet, sepolia } from 'viem/chains';
@@ -40,7 +40,6 @@ function getErrorMessage(error: Error | null): string | null {
 }
 
 export default function Home() {
-  const [balance, setBalance] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showModal, setShowModal] = useState(false)
@@ -52,7 +51,7 @@ export default function Home() {
   const { writeContract, data: hash, error: writeError } = useWriteContract()
   const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({ hash })
 
-  const { sepoliaBalance, baseBalance, loading: multiChainLoading, error: multiChainError } = useMultiChainBalance()
+  const chainBalances = useMultiChainBalance(address)
 
   const { data: tokenBalance } = useReadContract({
     address: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238' as `0x${string}`,
@@ -74,20 +73,6 @@ export default function Home() {
 
   const { switchChain, error: switchChainError, isPending: isSwitchingChain } = useSwitchChain()
 
-  async function handleCheck() {
-    console.log('tokenBalance', tokenBalance)
-    setLoading(true)
-    setError(null)
-    try {
-      const result = await readSepoliaBalance(address || '')
-      setBalance(result)
-    } catch (err) {
-
-      setError('查询失败，请检查地址')
-    } finally {
-      setLoading(false)
-    }
-  }
 
   async function handleConnect() {
     if (isConnected) {
@@ -118,7 +103,6 @@ export default function Home() {
       setLoading(false)
       disconnect()
       setShowModal(false)
-      setBalance(null)  // 断开连接后清空余额显示
     }
   }
 
@@ -168,19 +152,15 @@ export default function Home() {
           isConnected && address && (
             <div>
               <p className="font-mono text-sm">已连接: {address}</p>
-              <button onClick={handleCheck}>查询余额</button>
-              <AssetCard
-                chainName="Sepolia"
-                balance={sepoliaBalance}
-                isLoading={multiChainLoading}
-                error={multiChainError?.sepolia}
-              />
-              <AssetCard
-                chainName="Base"
-                balance={baseBalance}
-                isLoading={multiChainLoading}
-                error={multiChainError?.base}
-              />
+              {chainBalances.map((chain) => (
+                <AssetCard
+                  key={chain.id}
+                  chainName={chain.name}
+                  balance={chain.balance}
+                  isLoading={chain.isLoading}
+                  error={chain.error ?? undefined}
+                />
+              ))}
             </div>
           )
         }
@@ -230,7 +210,6 @@ export default function Home() {
 
       {loading && <p>加载中...</p>}
       {error && <p className="text-red-500">{error}</p>}
-      {balance && <p>余额: {balance} ETH</p>}
 
       {showModal && <Modal address={address} onClose={() => setShowModal(false)} />}
     </div>
