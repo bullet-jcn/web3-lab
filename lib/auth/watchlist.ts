@@ -3,11 +3,12 @@ import { isAddress } from 'viem'
 import { getAuthSecret } from './secret'
 import { sign, verify } from './signedCookie'
 
+export const WATCHLIST_COOKIE_NAME = 'watchlist'
 const MAX_WATCHLIST_SIZE = 20
-const WATCHLIST_TTL_SECONDS = 60 * 60 * 24 * 90 // outlives a single session, survives logout/login
+export const WATCHLIST_TTL_SECONDS = 60 * 60 * 24 * 90 // outlives a single session, survives logout/login
 
 function watchlistPurpose(ownerAddress: Address): string {
-  return `watchlist:${ownerAddress.toLowerCase()}`
+  return `${WATCHLIST_COOKIE_NAME}:${ownerAddress.toLowerCase()}`
 }
 
 interface WatchlistPayload {

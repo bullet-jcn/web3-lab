@@ -1,0 +1,8 @@
+### 拿 nonce
+GET http://localhost:3000/api/auth/nonce
+
+### 查当前 session
+GET http://localhost:3000/api/auth/session
+
+### 登出
+POST http://localhost:3000/api/auth/logout

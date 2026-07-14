@@ -4,7 +4,7 @@ import { getAuthSecret } from './secret'
 import { sign, verify } from './signedCookie'
 
 export const SESSION_COOKIE_NAME = 'session'
-const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7
+export const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7
 
 interface SessionPayload {
   address: Address

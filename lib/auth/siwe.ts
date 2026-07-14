@@ -5,8 +5,8 @@ import { mainnetClient, sepoliaClient } from '../viemClient'
 import { getAuthSecret } from './secret'
 import { sign, verify } from './signedCookie'
 
-const NONCE_PURPOSE = 'siwe-nonce'
-const NONCE_TTL_SECONDS = 60 * 5
+export const NONCE_COOKIE_NAME = 'siwe-nonce'
+export const NONCE_TTL_SECONDS = 60 * 5
 
 function clientForChain(chainId: number): PublicClient | undefined {
   if (chainId === sepolia.id) return sepoliaClient
@@ -16,7 +16,7 @@ function clientForChain(chainId: number): PublicClient | undefined {
 
 export function createNonceCookie(): { nonce: string; cookie: string } {
   const nonce = generateSiweNonce()
-  const cookie = sign(NONCE_PURPOSE, { nonce }, NONCE_TTL_SECONDS, getAuthSecret())
+  const cookie = sign(NONCE_COOKIE_NAME, { nonce }, NONCE_TTL_SECONDS, getAuthSecret())
   return { nonce, cookie }
 }
 
@@ -28,7 +28,7 @@ export async function verifySignIn(
   nonceCookieValue: string | undefined,
   requestHost: string,
 ): Promise<VerifySignInResult> {
-  const storedNonce = verify<{ nonce: string }>(NONCE_PURPOSE, nonceCookieValue, getAuthSecret())
+  const storedNonce = verify<{ nonce: string }>(NONCE_COOKIE_NAME, nonceCookieValue, getAuthSecret())
   if (!storedNonce) {
     return { ok: false, reason: 'nonce 缺失或已过期' }
   }
