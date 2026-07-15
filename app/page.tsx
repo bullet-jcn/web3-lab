@@ -5,6 +5,7 @@ import { useConnection, useConnect, useDisconnect, useReadContract, useSendTrans
 import { erc20Abi, parseEther } from 'viem';
 import { mainnet, sepolia } from 'viem/chains';
 import { AssetCard } from '@/components/ui/AssetCard';
+import SignInWithEthereum from '@/components/auth/SignInWithEthereum';
 
 function Modal({ address, onClose }: { address: `0x${string}` | undefined; onClose: () => void }) {
   return (
@@ -139,6 +140,7 @@ export default function Home() {
 
   return (
     <div className="p-6 space-y-4">
+      <SignInWithEthereum />
       <div className="space-x-2">
         {
           isConnected ? (
