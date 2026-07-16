@@ -3,11 +3,8 @@
 import { useLogout } from '@/lib/hooks/useLogout'
 import { useSession } from '@/lib/hooks/useSession'
 import { useSiwe } from '@/lib/hooks/useSiwe'
+import { truncateAddress } from '@/lib/format'
 import { useConnection } from 'wagmi'
-
-function truncateAddress(address: string): string {
-  return `${address.slice(0, 6)}...${address.slice(-4)}`
-}
 
 export default function SignInWithEthereum() {
   const { isConnected } = useConnection()

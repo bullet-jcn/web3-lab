@@ -6,6 +6,7 @@ import { erc20Abi, parseEther } from 'viem';
 import { mainnet, sepolia } from 'viem/chains';
 import { AssetCard } from '@/components/ui/AssetCard';
 import SignInWithEthereum from '@/components/auth/SignInWithEthereum';
+import WatchlistPanel from '@/components/watchlist/WatchlistPanel';
 
 function Modal({ address, onClose }: { address: `0x${string}` | undefined; onClose: () => void }) {
   return (
@@ -141,6 +142,7 @@ export default function Home() {
   return (
     <div className="p-6 space-y-4">
       <SignInWithEthereum />
+      <WatchlistPanel />
       <div className="space-x-2">
         {
           isConnected ? (
@@ -166,7 +168,7 @@ export default function Home() {
             </div>
           )
         }
-
+        <div>登录关注模块↑↑↑</div>
 
         {
           isConfirming ? (

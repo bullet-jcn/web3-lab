@@ -53,6 +53,10 @@ export function useWatchlist() {
         addresses: watchlistQuery.data?.addresses ?? [],
         isLoading: watchlistQuery.isLoading,
         addAddress: addMutation.mutate,
+        isAdding: addMutation.isPending,
+        addError: addMutation.error,
         removeAddress: removeMutation.mutate,
+        isRemoving: removeMutation.isPending,
+        removeError: removeMutation.error,
     }
 }
