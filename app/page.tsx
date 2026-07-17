@@ -7,6 +7,7 @@ import { mainnet, sepolia } from 'viem/chains';
 import { AssetCard } from '@/components/ui/AssetCard';
 import SignInWithEthereum from '@/components/auth/SignInWithEthereum';
 import WatchlistPanel from '@/components/watchlist/WatchlistPanel';
+import { BatchedTransferDemo } from '@/components/token/BatchedTransferDemo';
 
 function Modal({ address, onClose }: { address: `0x${string}` | undefined; onClose: () => void }) {
   return (
@@ -170,6 +171,8 @@ export default function Home() {
         }
         <div>登录关注模块↑↑↑</div>
 
+        <BatchedTransferDemo />
+        <div>批量原子模块↑↑↑</div>
         {
           isConfirming ? (
             <button disabled>确认中...</button>
