@@ -5,6 +5,7 @@ import { useSession } from '@/lib/hooks/useSession'
 import { useSiwe } from '@/lib/hooks/useSiwe'
 import { truncateAddress } from '@/lib/format'
 import { useConnection } from 'wagmi'
+import { Button } from '@/components/ui/Button'
 
 export default function SignInWithEthereum() {
   const { isConnected } = useConnection()
@@ -13,33 +14,33 @@ export default function SignInWithEthereum() {
   const { mutate: signOut, isPending: isSigningOut } = useLogout()
 
   if (isSessionLoading) {
-    return <p>检查登录状态…</p>
+    return <p className="text-sm text-gray-500 dark:text-neutral-400">检查登录状态…</p>
   }
 
   if (session) {
     return (
-      <div>
+      <div className="flex items-center justify-between gap-3">
         <p className="font-mono text-sm">已登录: {truncateAddress(session.address)}</p>
-        <button onClick={() => signOut()} disabled={isSigningOut}>
+        <Button variant="ghost" onClick={() => signOut()} disabled={isSigningOut}>
           {isSigningOut ? '退出中…' : '退出登录'}
-        </button>
+        </Button>
       </div>
     )
   }
 
   if (!isConnected) {
-    return <button disabled>请先连接钱包</button>
+    return <Button disabled>请先连接钱包</Button>
   }
 
   return (
-    <div>
-      <button onClick={() => signIn()} disabled={isSigningIn}>
+    <div className="space-y-2">
+      <Button onClick={() => signIn()} disabled={isSigningIn}>
         {isSigningIn ? '请在钱包中确认签名…' : '使用以太坊登录'}
-      </button>
+      </Button>
       {isError && (
-        <div>
-          <p className="text-red-500">{error.message}</p>
-          <button onClick={() => signIn()}>重试</button>
+        <div className="flex items-center gap-2">
+          <p className="text-sm text-red-500">{error.message}</p>
+          <Button variant="ghost" onClick={() => signIn()}>重试</Button>
         </div>
       )}
     </div>

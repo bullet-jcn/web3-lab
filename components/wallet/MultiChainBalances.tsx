@@ -9,11 +9,11 @@ export function MultiChainBalances() {
     const chainBalances = useMultiChainBalance(address)
 
     if (!address) {
-        return <p>连接钱包后查看多链余额</p>
+        return <p className="text-sm text-gray-500 dark:text-neutral-400">连接钱包后查看多链余额</p>
     }
 
     return (
-        <div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {chainBalances.map((chain) => (
                 <AssetCard
                     key={chain.id}
@@ -24,6 +24,5 @@ export function MultiChainBalances() {
                 />
             ))}
         </div>
-
     )
 }

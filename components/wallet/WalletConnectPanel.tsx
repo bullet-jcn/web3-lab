@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useConnect, useConnection, useConnectors, useDisconnect, useSwitchChain } from "wagmi";
 import { Modal } from "../ui/Modal";
+import { Button } from "../ui/Button";
+import { truncateAddress } from "@/lib/format";
 import { mainnet, sepolia } from "viem/chains";
 
 export function WalletConnectPanel() {
@@ -42,31 +44,42 @@ export function WalletConnectPanel() {
     }
 
     return (
-        <div>
-            {
-                isConnected ? (
-                    <button className="text-red-500" onClick={handleDisconnect}>断开连接</button>
-                ) : (
-                    <button onClick={handleConnect} disabled={loading}>
-                        {loading ? '连接中...' : '连接钱包'}
-                    </button>
-                )
-            }
-            {error && <p className="text-red-500">{error}</p>}
-            {isConnected && address && <p className="font-mono text-sm">已连接: {address}</p>}
+        <div className="space-y-3">
+            <div className="flex items-center justify-between gap-3">
+                {
+                    isConnected ? (
+                        <Button variant="danger" onClick={handleDisconnect}>断开连接</Button>
+                    ) : (
+                        <Button onClick={handleConnect} disabled={loading}>
+                            {loading ? '连接中...' : '连接钱包'}
+                        </Button>
+                    )
+                }
+                {isConnected && address && (
+                    <p className="font-mono text-sm" title={address}>{truncateAddress(address)}</p>
+                )}
+            </div>
+            {error && <p className="text-sm text-red-500">{error}</p>}
 
             {isConnected && (
-                <>
-                    <button onClick={() => switchChain({ chainId: mainnet.id })} disabled={isSwitchingChain}>
-                        {isSwitchingChain ? '切换中...' : '切到主网'}
-                    </button>
-                    <button onClick={() => switchChain({ chainId: sepolia.id })} disabled={isSwitchingChain}>
-                        {isSwitchingChain ? '切换中...' : '切到Sepolia'}
-                    </button>
-                    {switchChainError && <p className="text-red-500">切换网络失败: {switchChainError.message}</p>}
-                </>
+                <div className="space-y-2 border-t border-gray-200 pt-3 dark:border-neutral-800">
+                    <div className="flex gap-2">
+                        <Button variant="ghost" onClick={() => switchChain({ chainId: mainnet.id })} disabled={isSwitchingChain}>
+                            {isSwitchingChain ? '切换中...' : '切到主网'}
+                        </Button>
+                        <Button variant="ghost" onClick={() => switchChain({ chainId: sepolia.id })} disabled={isSwitchingChain}>
+                            {isSwitchingChain ? '切换中...' : '切到Sepolia'}
+                        </Button>
+                    </div>
+                    {switchChainError && <p className="text-sm text-red-500">切换网络失败: {switchChainError.message}</p>}
+                </div>
             )}
-            {showModal && <Modal onClose={() => setShowModal(false)}><p className="font-mono text-sm">{address}</p></Modal>}
+            {showModal && (
+                <Modal onClose={() => setShowModal(false)}>
+                    <p>连接成功</p>
+                    {address && <p className="font-mono text-sm" title={address}>{truncateAddress(address)}</p>}
+                </Modal>
+            )}
         </div>
     )
 }
