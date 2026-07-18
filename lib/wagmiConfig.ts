@@ -10,4 +10,5 @@ export const config = createConfig({
     [sepolia.id]: http(rpcUrls.sepolia),
     [mainnet.id]: http(rpcUrls.mainnet),
   },
+  ssr: true,
 })

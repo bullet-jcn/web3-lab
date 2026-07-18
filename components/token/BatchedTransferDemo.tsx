@@ -4,10 +4,8 @@ import { useState } from 'react'
 import { erc20Abi } from 'viem'
 import { sepolia } from 'viem/chains'
 import { useCapabilities, useSendCalls, useWaitForCallsStatus, useWriteContract } from 'wagmi'
-import { DEMO_ERC20_ADDRESS, DEMO_RECIPIENT_A, DEMO_RECIPIENT_B } from '@/lib/constants'
+import { DEMO_ERC20_ADDRESS, DEMO_RECIPIENT_A, DEMO_RECIPIENT_B, DEMO_TRANSFER_AMOUNT } from '@/lib/constants'
 import { resolveAtomicSupport } from '@/lib/eip5792'
-
-const TRANSFER_AMOUNT = BigInt(1)
 
 type SequentialStep = 'idle' | 'sending-first' | 'sending-second' | 'done' | 'error'
 
@@ -25,8 +23,8 @@ export function BatchedTransferDemo() {
   function handleAtomicTransfer() {
     sendCalls({
       calls: [
-        { to: DEMO_ERC20_ADDRESS, abi: erc20Abi, functionName: 'transfer', args: [DEMO_RECIPIENT_A, TRANSFER_AMOUNT] },
-        { to: DEMO_ERC20_ADDRESS, abi: erc20Abi, functionName: 'transfer', args: [DEMO_RECIPIENT_B, TRANSFER_AMOUNT] },
+        { to: DEMO_ERC20_ADDRESS, abi: erc20Abi, functionName: 'transfer', args: [DEMO_RECIPIENT_A, DEMO_TRANSFER_AMOUNT] },
+        { to: DEMO_ERC20_ADDRESS, abi: erc20Abi, functionName: 'transfer', args: [DEMO_RECIPIENT_B, DEMO_TRANSFER_AMOUNT] },
       ],
       forceAtomic: true,
     })
@@ -40,14 +38,14 @@ export function BatchedTransferDemo() {
         address: DEMO_ERC20_ADDRESS,
         abi: erc20Abi,
         functionName: 'transfer',
-        args: [DEMO_RECIPIENT_A, TRANSFER_AMOUNT],
+        args: [DEMO_RECIPIENT_A, DEMO_TRANSFER_AMOUNT],
       })
       setSequentialStep('sending-second')
       await writeContractAsync({
         address: DEMO_ERC20_ADDRESS,
         abi: erc20Abi,
         functionName: 'transfer',
-        args: [DEMO_RECIPIENT_B, TRANSFER_AMOUNT],
+        args: [DEMO_RECIPIENT_B, DEMO_TRANSFER_AMOUNT],
       })
       setSequentialStep('done')
     } catch (err) {
