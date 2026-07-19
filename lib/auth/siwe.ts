@@ -8,7 +8,7 @@ import { sign, verify } from './signedCookie'
 export const NONCE_COOKIE_NAME = 'siwe-nonce'
 export const NONCE_TTL_SECONDS = 60 * 5
 
-function clientForChain(chainId: number): PublicClient | undefined {
+export function clientForChain(chainId: number): PublicClient | undefined {
   if (chainId === sepolia.id) return sepoliaClient
   if (chainId === mainnet.id) return mainnetClient
   return undefined
@@ -27,6 +27,7 @@ export async function verifySignIn(
   signature: Hex,
   nonceCookieValue: string | undefined,
   requestHost: string,
+  resolveClient: (chainId: number) => PublicClient | undefined = clientForChain,
 ): Promise<VerifySignInResult> {
   const storedNonce = verify<{ nonce: string }>(NONCE_COOKIE_NAME, nonceCookieValue, getAuthSecret())
   if (!storedNonce) {
@@ -46,7 +47,7 @@ export async function verifySignIn(
     return { ok: false, reason: 'domain 不匹配' }
   }
 
-  const client = clientForChain(chainId)
+  const client = resolveClient(chainId)
   if (!client) {
     return { ok: false, reason: '不支持的链' }
   }
