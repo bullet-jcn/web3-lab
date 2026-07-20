@@ -49,3 +49,6 @@ next-env.d.ts
 
 # practice
 /practice
+
+# personal Claude Code config, not for the public repo
+.claude/settings.local.json
