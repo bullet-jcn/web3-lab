@@ -5,6 +5,7 @@ import { WalletConnectPanel } from '@/components/wallet/WalletConnectPanel'
 import { MultiChainBalances } from '@/components/wallet/MultiChainBalances'
 import { BatchedTransferDemo } from '@/components/token/BatchedTransferDemo'
 import { TokenTransferPanel } from '@/components/token/TokenTransferPanel'
+import { ApprovalRiskDemo } from '@/components/token/ApprovalRiskDemo'
 import { Section } from '@/components/ui/Section'
 
 export default function Home() {
@@ -39,6 +40,10 @@ export default function Home() {
 
       <Section title="单笔转账 / 发送 ETH">
         <TokenTransferPanel />
+      </Section>
+
+      <Section title="AI 安全副驾驶：签名前风险检测">
+        <ApprovalRiskDemo />
       </Section>
     </main>
   )

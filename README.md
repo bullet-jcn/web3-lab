@@ -16,6 +16,8 @@ A Next.js + wagmi/viem dApp that goes past "connect wallet, show balance": Sign-
   EIP-5792 原子批量转账——用 `useCapabilities` 检测钱包能力，支持则把两笔 ERC20 转账合并成一次原子 `useSendCalls`；不支持则显式降级为两笔顺序交易，并在 UI 上明确说明"第二笔失败不会撤销第一笔"。
 - **ERC20 / native ETH transfer** — pre-flight `simulateContract` check before broadcasting, on-chain confirmation tracking, and human-readable error messages instead of raw RPC errors.
   ERC20 / 原生 ETH 转账——广播前用 `simulateContract` 预检查，追踪链上确认状态，把原始 RPC 错误转成可读的中文提示。
+- **AI security copilot — pre-signature risk detection** — a deterministic, unit-tested function flags known-dangerous patterns (currently: unlimited ERC20 `approve`); an LLM only phrases the already-computed finding into a plain-language warning, never decides what's risky. Any flagged action requires an explicit "I understand the risk, proceed" confirmation before it's ever signed.
+  AI 安全副驾驶——签名前风险检测——确定性、有单测覆盖的函数检测已知风险模式(目前:无限额度 ERC20 `approve`);LLM 只负责把已经算出来的结果转述成人话警告,不负责判断风险本身。任何被标记的操作都需要用户显式点"我已了解风险,继续"才会真正发起签名。
 
 ## Tech stack 技术栈
 
@@ -28,6 +30,7 @@ A Next.js + wagmi/viem dApp that goes past "connect wallet, show balance": Sign-
 | Styling 样式 | Tailwind CSS v4 |
 | Testing 测试 | Vitest + Testing Library |
 | Language 语言 | TypeScript |
+| AI / LLM | Google Gemini API (`@google/genai`) |
 
 ## Directory structure 目录结构
 
@@ -36,13 +39,14 @@ app/
   api/
     auth/{nonce,verify,session,logout}/route.ts   # SIWE 登录相关 Route Handlers
     watchlist/route.ts                            # 关注列表 CRUD Route Handler
+    risk-copilot/route.ts                         # AI 安全副驾驶：结构化风险 → 人话警告
   layout.tsx / page.tsx / providers.tsx
 
 components/
   auth/SignInWithEthereum.tsx        # 登录/登出 UI
   watchlist/WatchlistPanel.tsx       # 关注列表 UI
   wallet/{WalletConnectPanel,MultiChainBalances}.tsx
-  token/{TokenTransferPanel,BatchedTransferDemo}.tsx
+  token/{TokenTransferPanel,BatchedTransferDemo,ApprovalRiskDemo}.tsx
   ui/{Button,Section,Modal,AssetCard}.tsx         # 通用展示层，不含业务 hook
 
 lib/
@@ -56,6 +60,7 @@ lib/
     useMultiChainBalance.ts
   chains.ts / rpc.ts / viemClient.ts / wagmiConfig.ts
   eip5792.ts           # 原子批量能力判断的归约函数
+  riskCheck.ts         # 确定性风险检测规则（纯函数，AI 不参与判断）
   errors.ts / constants.ts / format.ts
 ```
 
@@ -72,6 +77,12 @@ The session (and the watchlist) is a self-contained cookie, HMAC-signed with Nod
 `useCapabilities` reports one of three states per chain: `supported`, `ready` (atomic execution is possible but needs a one-time account upgrade, which the wallet handles transparently inside the same `wallet_sendCalls` call), or `unsupported`. The demo submits `forceAtomic: true` so an unsupported wallet fails loudly instead of silently executing the two transfers non-atomically — the UI then explicitly falls back to two sequential transactions and says outright that a failure partway through won't roll back the first one. The point of this demo isn't "call a new API" — it's demonstrating that atomicity is a guarantee you have to detect and communicate, not assume.
 
 `useCapabilities`会针对每条链返回三种状态:`supported`、`ready`(能做到原子执行,但需要先做一次性账户升级,这一步钱包会在同一次 `wallet_sendCalls` 调用里透明处理)、或 `unsupported`。demo 提交时带上 `forceAtomic: true`,这样不支持的钱包会直接报错失败,而不是悄悄把两笔转账拆成非原子执行——UI 会明确降级成两笔顺序交易,并直接告诉用户"中途失败不会撤销第一笔"。这个 demo 的价值不在于"调通了一个新 API",而在于证明原子性是一个需要主动检测、并诚实告知用户的保证,不能默认它存在。
+
+### Deterministic risk detection, AI only phrases it 风险判断是确定性代码，AI 只负责转述
+
+The AI security copilot deliberately splits into two pieces with a hard boundary: `lib/riskCheck.ts` is a pure, synchronous, fully-unit-tested function that decides whether a call is risky (e.g. an ERC20 `approve` for `maxUint256`) — the LLM is never asked to detect or judge anything. Its only input is the already-computed structured finding (`{severity, code, detail}`), and its only job is turning that into a short, honest warning; the system prompt explicitly forbids inventing risks beyond the given data, and requires saying "no known risk detected" instead of implying safety when nothing was found. This split also paid off directly: the route handler was originally built against the Anthropic API, then switched to Gemini's free tier mid-project (an account credit issue, not a design change) — and that swap touched exactly one file. `riskCheck.ts`, its tests, and the UI didn't change at all.
+
+AI 安全副驾驶刻意拆成两个边界清晰的部分:`lib/riskCheck.ts` 是一个纯函数、同步、有完整单测覆盖,负责判断一次调用是不是有风险(比如 ERC20 `approve` 传了 `maxUint256`)——LLM 完全不参与"判断"这一步。它唯一的输入是已经算好的结构化结果(`{severity, code, detail}`),唯一的任务是把这个结果转述成一句诚实的警告;system prompt 里明确禁止在给定数据之外编造风险,也要求"没检测到已知风险"时如实说清楚,而不是暗示"绝对安全"。这个拆分直接带来了一个好处:这个 route handler 最初接的是 Anthropic API,项目中途因为账户余额问题(不是设计原因)换成了 Gemini 的免费额度——这次切换只改了一个文件,`riskCheck.ts`、它的测试、还有 UI 完全没动。
 
 ### Why Route Handlers aren't unit-tested directly 为什么没有直接给 Route Handler 写单测
 
@@ -94,9 +105,9 @@ npm run test        # vitest run
 npm run test:watch  # vitest (watch mode)
 ```
 
-Covered: the signed-cookie primitive (round-trip, tampering, expiry, purpose isolation), SIWE sign-in verification (real offline-generated signatures via `viem/accounts`, covering nonce/domain/signature rejection paths), watchlist business logic (add/remove/duplicate/limit), the EIP-5792 capability reducer, error-message mapping, and the multi-chain balance hook. `.github/workflows/ci.yml` runs lint + typecheck + test on every push/PR — no secrets required, since every secret (`AUTH_COOKIE_SECRET`, the Alchemy key) is read lazily at call time, not asserted at module load.
+Covered: the signed-cookie primitive (round-trip, tampering, expiry, purpose isolation), SIWE sign-in verification (real offline-generated signatures via `viem/accounts`, covering nonce/domain/signature rejection paths), watchlist business logic (add/remove/duplicate/limit), the EIP-5792 capability reducer, error-message mapping, the multi-chain balance hook, and the deterministic risk-detection rule (`lib/riskCheck.ts`). `.github/workflows/ci.yml` runs lint + typecheck + test on every push/PR — no secrets required, since every secret (`AUTH_COOKIE_SECRET`, the Alchemy key, `GEMINI_API_KEY`) is read lazily at call time, not asserted at module load.
 
-覆盖范围:签名 cookie 原语(往返、篡改、过期、purpose 隔离)、SIWE 登录验证(用 `viem/accounts` 离线生成真实签名,覆盖 nonce/domain/签名各种拒绝场景)、关注列表业务逻辑(增删、去重、上限)、EIP-5792 能力归约函数、错误信息映射、多链余额 hook。`.github/workflows/ci.yml` 在每次 push/PR 上跑 lint + typecheck + test,不需要配置任何 secret——因为所有 secret(`AUTH_COOKIE_SECRET`、Alchemy key)都是调用时才惰性读取,不是模块加载时就断言存在。
+覆盖范围:签名 cookie 原语(往返、篡改、过期、purpose 隔离)、SIWE 登录验证(用 `viem/accounts` 离线生成真实签名,覆盖 nonce/domain/签名各种拒绝场景)、关注列表业务逻辑(增删、去重、上限)、EIP-5792 能力归约函数、错误信息映射、多链余额 hook、以及确定性风险检测规则(`lib/riskCheck.ts`)。`.github/workflows/ci.yml` 在每次 push/PR 上跑 lint + typecheck + test,不需要配置任何 secret——因为所有 secret(`AUTH_COOKIE_SECRET`、Alchemy key、`GEMINI_API_KEY`)都是调用时才惰性读取,不是模块加载时就断言存在。
 
 ## Known limitations 已知局限
 
@@ -106,13 +117,16 @@ Covered: the signed-cookie primitive (round-trip, tampering, expiry, purpose iso
   目前还没有用到 mock(`vi.mock`)或者组件级的 Testing Library 测试(`render`/`screen`/`userEvent`)——目前所有测试测的都是刻意设计成不需要 mock 的纯函数。
 - Watchlist is capped at 20 addresses by the ~4KB cookie size limit, and there's no way to revoke a session before it expires other than rotating `AUTH_COOKIE_SECRET` (which invalidates every session at once).
   关注列表因为 cookie ~4KB 的大小限制,上限是 20 个地址;而且没法只撤销某一个 session,除非轮换 `AUTH_COOKIE_SECRET`(会让所有 session 一起失效)。
+- Only one risk rule is implemented so far (unlimited ERC20 `approve`) — an intentionally narrow, honestly-scoped MVP, not a claim of comprehensive risk coverage. Adding a new rule means adding a new case to `assessRisk()`; the AI-phrasing layer needs no changes.
+  目前只实现了一条风险规则(无限额度 ERC20 `approve`)——这是刻意做小、诚实标注范围的 MVP,不是"全面风险覆盖"的承诺。加一条新规则只需要在 `assessRisk()` 里加一个分支,AI 转述那层完全不用改。
 
 ## Security practices 安全实践
 
 - **Env var tiering 环境变量分级**：`NEXT_PUBLIC_` 前缀的变量会被打进浏览器 bundle,`AUTH_COOKIE_SECRET` 不加这个前缀,仅服务端可见。
 - **Constant-time comparison 恒定时间比较**：session/watchlist cookie 校验用 `crypto.timingSafeEqual`,避免签名比较时的时序侧信道。
 - **Domain separation 域隔离**：HMAC 签名混入 `purpose` 字符串,防止不同用途的 cookie 互相冒充。
-- **Least-privilege transfers 最小必要授权**：转账金额按需指定,不采用无限额度授权。
+- **Least-privilege transfers, now with a real detector 最小必要授权，现在有代码把关**：`lib/riskCheck.ts` flags unlimited-approval (`maxUint256`) calls before they're ever signed — previously this was just a README claim with no code behind it.
+  之前这一条只是 README 里的一句话,现在 `lib/riskCheck.ts` 会在签名前真正检测并拦截无限额度授权(`maxUint256`)的调用。
 - **No secrets in source 敏感信息隔离**：私钥/助记词/密钥不进代码、不进日志、不进版本控制。
 
 ## Local setup 本地运行
@@ -121,6 +135,7 @@ Covered: the signed-cookie primitive (round-trip, tampering, expiry, purpose iso
    ```
    NEXT_PUBLIC_ALCHEMY_API_KEY=your-alchemy-api-key
    AUTH_COOKIE_SECRET=$(openssl rand -base64 32)
+   GEMINI_API_KEY=your-gemini-api-key   # optional — only needed for the AI risk copilot; free, no card required, at aistudio.google.com/apikey
    ```
 2. Install & run 安装并启动：
    ```bash
@@ -138,6 +153,7 @@ Covered: the signed-cookie primitive (round-trip, tampering, expiry, purpose iso
 - [x] EIP-5792 atomic batch transfer + honest fallback 原子批量转账 + 诚实降级
 - [x] ERC20 / native ETH transfer with pre-flight simulation 带预检查的 ERC20/ETH 转账
 - [x] Unit tests + CI 单元测试 + CI
+- [x] AI security copilot: deterministic pre-signature risk detection + LLM phrasing AI 安全副驾驶:签名前确定性风险检测 + LLM 转述
 - [ ] Mocking + component-level tests mock 与组件级测试
 - [ ] Manual end-to-end verification of the atomic EIP-5792 path 原子路径的真实端到端验证
 - [ ] WalletConnect for mobile wallets 接入 WalletConnect,支持移动端钱包

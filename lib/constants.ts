@@ -7,3 +7,7 @@ export const DEMO_RECIPIENT_B = '0x7b2c939388f9D15b7B0c37CF5b18C17f3710b11b' as 
 export const DEMO_RECIPIENT_C = '0x8F7b86Fe8f1a5CaB00Aa66cBb3E3BBF6a79535EE' as const
 
 export const DEMO_TRANSFER_AMOUNT = BigInt(1)
+
+// Reuses DEMO_RECIPIENT_B's address under a name that matches its role here:
+// an ERC20 "spender" being granted an allowance, not a transfer recipient.
+export const DEMO_SPENDER_ADDRESS = DEMO_RECIPIENT_B
