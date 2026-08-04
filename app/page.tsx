@@ -2,6 +2,7 @@ import { ApprovalRiskDemo } from '@/components/token/ApprovalRiskDemo'
 import { BatchedTransferDemo } from '@/components/token/BatchedTransferDemo'
 import { TokenTransferPanel } from '@/components/token/TokenTransferPanel'
 import { Badge } from '@/components/ui/badge'
+import { ThemeToggle } from '@/components/ui/ThemeToggle'
 import { Section } from '@/components/ui/Section'
 import { WalletConnectPanel } from '@/components/wallet/WalletConnectPanel'
 import { MultiChainBalances } from '@/components/wallet/MultiChainBalances'
@@ -44,9 +45,12 @@ export default function Home() {
               <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground">Onchain playground</p>
             </div>
           </div>
-          <Badge variant="outline" className="gap-1.5 border-emerald-400/20 bg-emerald-400/5 px-2.5 py-1 text-emerald-600 dark:text-emerald-300">
-            <CircleDot className="size-3 fill-current" /> Sepolia ready
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="hidden gap-1.5 border-emerald-400/20 bg-emerald-400/5 px-2.5 py-1 text-emerald-600 dark:text-emerald-300 sm:inline-flex">
+              <CircleDot className="size-3 fill-current" /> Sepolia ready
+            </Badge>
+            <ThemeToggle />
+          </div>
         </nav>
 
         <header className="mb-12 grid items-end gap-8 lg:grid-cols-[1fr_auto]">
