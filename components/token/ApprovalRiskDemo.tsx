@@ -3,7 +3,7 @@
 import { erc20Abi, maxUint256, type Address } from 'viem'
 import { useState } from 'react'
 import { useWaitForTransactionReceipt, useWriteContract } from 'wagmi'
-import { Button } from '../ui/Button'
+import { Button } from '../ui/button'
 import { assessRisk } from '@/lib/riskCheck'
 import { useSession } from '@/lib/hooks/useSession'
 import { DEMO_ERC20_ADDRESS, DEMO_SPENDER_ADDRESS, DEMO_TRANSFER_AMOUNT } from '@/lib/constants'
@@ -65,7 +65,7 @@ export function ApprovalRiskDemo() {
   }
 
   if (!session) {
-    return <p className="text-sm text-gray-500 dark:text-neutral-400">登录后可以体验 AI 安全副驾驶</p>
+    return <p className="text-sm text-muted-foreground">登录后可以体验 AI 安全副驾驶</p>
   }
 
   return (
@@ -74,7 +74,7 @@ export function ApprovalRiskDemo() {
         <Button onClick={() => handleApprove(DEMO_TRANSFER_AMOUNT)} disabled={isConfirming}>
           小额授权（推荐）
         </Button>
-        <Button variant="danger" onClick={() => handleApprove(maxUint256)} disabled={isConfirming}>
+        <Button variant="destructive" onClick={() => handleApprove(maxUint256)} disabled={isConfirming}>
           无限额度授权（演示风险）
         </Button>
       </div>
@@ -83,15 +83,15 @@ export function ApprovalRiskDemo() {
         <div className="rounded-md bg-orange-50 p-3 dark:bg-orange-950">
           <p className="text-sm text-orange-600 dark:text-orange-400">{warning}</p>
           {pendingApproval && (
-            <Button variant="danger" onClick={handleConfirmDespiteRisk} className="mt-2">
+            <Button variant="destructive" onClick={handleConfirmDespiteRisk} className="mt-2">
               我已了解风险，继续
             </Button>
           )}
         </div>
       )}
 
-      {isConfirming && <p className="text-sm text-gray-500 dark:text-neutral-400">确认中...</p>}
-      {isApproved && <p className="text-sm text-green-500">授权成功！</p>}
+      {isConfirming && <p className="text-sm text-muted-foreground">确认中...</p>}
+      {isApproved && <p className="text-sm text-emerald-300">授权成功！</p>}
     </div>
   )
 }

@@ -9,7 +9,7 @@ export function MultiChainBalances() {
     const chainBalances = useMultiChainBalance(address)
 
     if (!address) {
-        return <p className="text-sm text-gray-500 dark:text-neutral-400">连接钱包后查看多链余额</p>
+        return <p className="text-sm text-muted-foreground">连接钱包后查看多链余额</p>
     }
 
     return (

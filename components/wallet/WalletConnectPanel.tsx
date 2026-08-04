@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useConnect, useConnection, useConnectors, useDisconnect, useSwitchChain } from "wagmi";
 import { Modal } from "../ui/Modal";
-import { Button } from "../ui/Button";
+import { Button } from "../ui/button";
 import { truncateAddress } from "@/lib/format";
 import { mainnet, sepolia } from "viem/chains";
 
@@ -48,7 +48,7 @@ export function WalletConnectPanel() {
             <div className="flex items-center justify-between gap-3">
                 {
                     isConnected ? (
-                        <Button variant="danger" onClick={handleDisconnect}>断开连接</Button>
+                        <Button variant="destructive" onClick={handleDisconnect}>断开连接</Button>
                     ) : (
                         <Button onClick={handleConnect} disabled={loading}>
                             {loading ? '连接中...' : '连接钱包'}

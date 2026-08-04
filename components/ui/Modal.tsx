@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Button } from "./Button";
+import { Button } from "./button";
 
 export function Modal({ onClose, children }: { onClose: () => void; children: ReactNode }) {
   return (
