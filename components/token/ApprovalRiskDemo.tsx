@@ -5,7 +5,7 @@ import { useState } from 'react'
 import { useWaitForTransactionReceipt, useWriteContract } from 'wagmi'
 import { Button } from '../ui/button'
 import { assessRisk } from '@/lib/riskCheck'
-import { useSession } from '@/lib/hooks/useSession'
+import { useWalletSession } from '@/lib/hooks/useWalletSession'
 import { DEMO_ERC20_ADDRESS, DEMO_SPENDER_ADDRESS, DEMO_TRANSFER_AMOUNT } from '@/lib/constants'
 
 interface PendingApproval {
@@ -14,7 +14,7 @@ interface PendingApproval {
 }
 
 export function ApprovalRiskDemo() {
-  const { data: session } = useSession()
+  const { session, status: sessionStatus, isAuthenticatedWallet } = useWalletSession()
 
   const { mutate: writeContract, data: approveHash } = useWriteContract()
   const { isLoading: isConfirming, isSuccess: isApproved } = useWaitForTransactionReceipt({ hash: approveHash })
@@ -66,6 +66,13 @@ export function ApprovalRiskDemo() {
 
   if (!session) {
     return <p className="text-sm text-muted-foreground">登录后可以体验 AI 安全副驾驶</p>
+  }
+
+  if (!isAuthenticatedWallet) {
+    const message = sessionStatus === 'account-mismatch'
+      ? '当前钱包与登录账户不一致，已阻止授权操作。请先退出旧会话并重新登录。'
+      : '钱包已断开，已阻止授权操作。请重新连接登录账户。'
+    return <p className="text-sm text-destructive">{message}</p>
   }
 
   return (

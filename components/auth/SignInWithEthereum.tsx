@@ -1,24 +1,19 @@
 'use client'
 
 import { useLogout } from '@/lib/hooks/useLogout'
-import { useSession } from '@/lib/hooks/useSession'
+import { useWalletSession } from '@/lib/hooks/useWalletSession'
 import { useSiwe } from '@/lib/hooks/useSiwe'
 import { truncateAddress } from '@/lib/format'
-import { resolveWalletSessionStatus } from '@/lib/auth/walletSession'
-import { useConnection } from 'wagmi'
 import { Button } from '@/components/ui/button'
 
 export default function SignInWithEthereum() {
-  const { address, isConnected } = useConnection()
-  const { data: session, isLoading: isSessionLoading } = useSession()
+  const { session, isConnected, status: sessionStatus, isLoading: isSessionLoading } = useWalletSession()
   const { mutate: signIn, isPending: isSigningIn, isError, error } = useSiwe()
   const { mutate: signOut, isPending: isSigningOut } = useLogout()
 
   if (isSessionLoading) {
     return <p className="text-sm text-muted-foreground">检查登录状态…</p>
   }
-
-  const sessionStatus = resolveWalletSessionStatus(session?.address, address)
 
   if (session && sessionStatus === 'matched') {
     return (
