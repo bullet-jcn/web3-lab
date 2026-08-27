@@ -4,9 +4,10 @@ import { useState } from 'react'
 import { erc20Abi } from 'viem'
 import { useCapabilities, useConnection, usePublicClient, useSendCalls, useWaitForCallsStatus, useWriteContract } from 'wagmi'
 import { DEMO_ERC20_ADDRESS, DEMO_RECIPIENT_A, DEMO_RECIPIENT_B, DEMO_TRANSFER_AMOUNT } from '@/lib/constants'
-import { resolveAtomicSupport } from '@/lib/eip5792'
+import { resolveAtomicBatchState, resolveAtomicSupport } from '@/lib/eip5792'
 import { Button } from '@/components/ui/button'
 import { useWriteChainGuard } from '@/lib/hooks/useWriteChainGuard'
+import { getErrorMessage } from '@/lib/errors'
 
 type SequentialStep =
   | 'idle'
@@ -27,7 +28,16 @@ export function BatchedTransferDemo() {
   const support = resolveAtomicSupport(capabilities?.atomic?.status)
 
   const { mutate: sendCalls, data: sendCallsResult, isPending: isSendingBatch, error: sendCallsError } = useSendCalls()
-  const { data: callsStatus } = useWaitForCallsStatus({ id: sendCallsResult?.id })
+  const { data: callsStatus, error: callsStatusError } = useWaitForCallsStatus({ id: sendCallsResult?.id })
+  const atomicBatchError = sendCallsError ?? callsStatusError
+  const atomicBatchState = resolveAtomicBatchState({
+    isAwaitingWallet: isSendingBatch,
+    bundleId: sendCallsResult?.id,
+    status: callsStatus?.status,
+    receiptStatuses: callsStatus?.receipts?.map((receipt) => receipt.status) ?? [],
+    error: atomicBatchError,
+  })
+  const atomicBatchErrorMessage = getErrorMessage(atomicBatchError)
 
   const { mutateAsync: writeContractAsync } = useWriteContract()
   const [sequentialStep, setSequentialStep] = useState<SequentialStep>('idle')
@@ -113,16 +123,24 @@ export function BatchedTransferDemo() {
   ].includes(sequentialStep)
 
   if (support !== 'sequential-fallback') {
+    const isAtomicBatchBusy = atomicBatchState === 'awaiting-wallet' || atomicBatchState === 'confirming'
+
     return (
       <div className="space-y-2">
-        <Button className="w-full" onClick={handleAtomicTransfer} disabled={isSendingBatch}>
-          {isSendingBatch ? '提交中…' : '批量转账(原子)'}
+        <Button className="w-full" onClick={handleAtomicTransfer} disabled={isAtomicBatchBusy}>
+          {atomicBatchState === 'awaiting-wallet' && '等待钱包确认批量交易…'}
+          {atomicBatchState === 'confirming' && '批量交易链上确认中…'}
+          {!isAtomicBatchBusy && '批量转账(原子)'}
         </Button>
         {support === 'upgrade-then-atomic' && (
           <p className="text-sm text-gray-500 dark:text-neutral-400">首次使用可能需要先确认一次账户升级</p>
         )}
-        {sendCallsError && <p className="text-sm text-destructive">{sendCallsError.message}</p>}
-        {callsStatus && <p className="text-sm">状态: {callsStatus.status}</p>}
+        {atomicBatchState === 'success' && <p className="text-sm text-emerald-300">原子批量交易已确认</p>}
+        {atomicBatchState === 'failure' && (
+          <p className="text-sm text-destructive">
+            {atomicBatchErrorMessage ?? '原子批量交易失败，没有任何一笔应被视为成功。'}
+          </p>
+        )}
       </div>
     )
   }
