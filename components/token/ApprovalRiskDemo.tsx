@@ -1,6 +1,6 @@
 'use client'
 
-import { erc20Abi, maxUint256, type Address } from 'viem'
+import { erc20Abi, maxUint256, type Address, type Hash, type ReplacementReason } from 'viem'
 import { useEffect, useRef, useState } from 'react'
 import { useWaitForTransactionReceipt, useWriteContract } from 'wagmi'
 import { Button } from '../ui/button'
@@ -8,7 +8,7 @@ import { assessRisk } from '@/lib/riskCheck'
 import { useWalletSession } from '@/lib/hooks/useWalletSession'
 import { DEMO_ERC20_ADDRESS, DEMO_SPENDER_ADDRESS, DEMO_TRANSFER_AMOUNT } from '@/lib/constants'
 import { useWriteChainGuard } from '@/lib/hooks/useWriteChainGuard'
-import { resolveTransactionState } from '@/lib/transactionState'
+import { getReplacementMessage, resolveTransactionState } from '@/lib/transactionState'
 import { getErrorMessage } from '@/lib/errors'
 
 interface PendingApproval {
@@ -19,6 +19,12 @@ interface PendingApproval {
 
 interface ApprovalWarning {
   message: string
+  contextKey: string
+}
+
+interface ApprovalReplacement {
+  reason: ReplacementReason
+  hash: Hash
   contextKey: string
 }
 
@@ -44,25 +50,35 @@ export function ApprovalRiskDemo() {
     isLoading: isConfirming,
     isSuccess: isApproved,
     error: receiptError,
-  } = useWaitForTransactionReceipt({ hash: approveHash })
+  } = useWaitForTransactionReceipt({
+    hash: approveHash,
+    onReplaced: ({ reason, transaction }) => {
+      setApprovalReplacement({ reason, hash: transaction.hash, contextKey: approvalContextKey })
+    },
+  })
 
   const [warning, setWarning] = useState<ApprovalWarning | null>(null)
   const [pendingApproval, setPendingApproval] = useState<PendingApproval | null>(null)
+  const [approvalReplacement, setApprovalReplacement] = useState<ApprovalReplacement | null>(null)
   const [isRiskChecking, setIsRiskChecking] = useState(false)
   const visibleWarning = warning?.contextKey === approvalContextKey ? warning.message : null
   const activePendingApproval = pendingApproval?.contextKey === approvalContextKey ? pendingApproval : null
+  const activeApprovalReplacement = approvalReplacement?.contextKey === approvalContextKey ? approvalReplacement : null
   const approvalError = writeError ?? receiptError
   const approvalState = resolveTransactionState({
     isAwaitingWallet,
     isConfirming,
     isSuccess: isApproved,
     error: approvalError,
+    replacementReason: activeApprovalReplacement?.reason,
   })
   const approvalErrorMessage = getErrorMessage(approvalError)
+  const approvalReplacementMessage = getReplacementMessage(activeApprovalReplacement?.reason)
   const isApprovalBusy = isRiskChecking || approvalState === 'awaiting-wallet' || approvalState === 'confirming'
 
   function submitApproval(spender: Address, amount: bigint) {
     if (!isAuthenticatedWallet || !isCorrectChain) return
+    setApprovalReplacement(null)
     writeContract({
       address: DEMO_ERC20_ADDRESS,
       abi: erc20Abi,
@@ -174,6 +190,11 @@ export function ApprovalRiskDemo() {
       {approvalState === 'awaiting-wallet' && <p className="text-sm text-muted-foreground">等待钱包确认授权…</p>}
       {approvalState === 'confirming' && <p className="text-sm text-muted-foreground">授权交易链上确认中…</p>}
       {approvalState === 'success' && <p className="text-sm text-emerald-300">授权成功！</p>}
+      {approvalReplacementMessage && (
+        <p className={activeApprovalReplacement?.reason === 'repriced' ? 'text-sm text-muted-foreground' : 'text-sm text-orange-600 dark:text-orange-400'}>
+          {approvalReplacementMessage}
+        </p>
+      )}
       {approvalErrorMessage && <p className="text-sm text-destructive">{approvalErrorMessage}</p>}
     </div>
   )

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApprovalRiskDemo } from './ApprovalRiskDemo'
 
@@ -9,27 +9,35 @@ const mocks = vi.hoisted(() => ({
   isConfirming: false,
   isApproved: false,
   receiptError: null as Error | null,
+  chainId: 11155111,
+  replacementCallback: undefined as ((event: {
+    reason: 'cancelled' | 'replaced' | 'repriced'
+    transaction: { hash: `0x${string}` }
+  }) => void) | undefined,
 }))
 
 vi.mock('wagmi', () => ({
   useWriteContract: () => ({
     mutate: mocks.writeContract,
-    data: undefined,
+    data: '0x01',
     isPending: mocks.isAwaitingWallet,
     error: mocks.writeError,
   }),
-  useWaitForTransactionReceipt: () => ({
-    isLoading: mocks.isConfirming,
-    isSuccess: mocks.isApproved,
-    error: mocks.receiptError,
-  }),
+  useWaitForTransactionReceipt: (options: { onReplaced?: typeof mocks.replacementCallback }) => {
+    mocks.replacementCallback = options.onReplaced
+    return {
+      isLoading: mocks.isConfirming,
+      isSuccess: mocks.isApproved,
+      error: mocks.receiptError,
+    }
+  },
 }))
 
 vi.mock('@/lib/hooks/useWalletSession', () => ({
   useWalletSession: () => ({
     session: { address: '0x0000000000000000000000000000000000000001' },
     walletAddress: '0x0000000000000000000000000000000000000001',
-    chainId: 11155111,
+    chainId: mocks.chainId,
     status: 'matched',
     isAuthenticatedWallet: true,
   }),
@@ -53,6 +61,8 @@ describe('ApprovalRiskDemo lifecycle', () => {
     mocks.isConfirming = false
     mocks.isApproved = false
     mocks.receiptError = null
+    mocks.chainId = 11155111
+    mocks.replacementCallback = undefined
   })
 
   afterEach(() => {
@@ -96,5 +106,31 @@ describe('ApprovalRiskDemo lifecycle', () => {
     render(<ApprovalRiskDemo />)
 
     expect(screen.getByText('你取消了这笔交易')).toBeInTheDocument()
+  })
+
+  it('removes approval success when the transaction is cancelled', () => {
+    mocks.isApproved = true
+    render(<ApprovalRiskDemo />)
+    expect(screen.getByText('授权成功！')).toBeInTheDocument()
+
+    act(() => {
+      mocks.replacementCallback?.({ reason: 'cancelled', transaction: { hash: '0x02' } })
+    })
+
+    expect(screen.queryByText('授权成功！')).not.toBeInTheDocument()
+    expect(screen.getByText(/取消原交易/)).toBeInTheDocument()
+  })
+
+  it('ignores a replacement callback created under an old chain context', () => {
+    const { rerender } = render(<ApprovalRiskDemo />)
+    const oldContextCallback = mocks.replacementCallback
+
+    mocks.chainId = 1
+    rerender(<ApprovalRiskDemo />)
+    act(() => {
+      oldContextCallback?.({ reason: 'cancelled', transaction: { hash: '0x02' } })
+    })
+
+    expect(screen.queryByText(/取消原交易/)).not.toBeInTheDocument()
   })
 })
