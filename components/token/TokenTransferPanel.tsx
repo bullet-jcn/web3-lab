@@ -6,6 +6,7 @@ import { erc20Abi, parseEther } from "viem";
 import { useConnection, useReadContract, useSendTransaction, useSimulateContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
 import { Button } from "@/components/ui/button";
 import { useWriteChainGuard } from "@/lib/hooks/useWriteChainGuard";
+import { resolveTransactionState } from "@/lib/transactionState";
 
 export function TokenTransferPanel() {
     const { address } = useConnection()
@@ -29,11 +30,19 @@ export function TokenTransferPanel() {
         query: { enabled: !!address && isCorrectChain },
     })
 
-    const { mutate: writeContract, data: transferHash, error: writeError } = useWriteContract()
-    const { isLoading: isConfirmingTransfer, isSuccess: isTransferConfirmed } = useWaitForTransactionReceipt({ hash: transferHash })
+    const { mutate: writeContract, data: transferHash, isPending: isAwaitingTransferWallet, error: writeError } = useWriteContract()
+    const {
+        isLoading: isConfirmingTransfer,
+        isSuccess: isTransferConfirmed,
+        error: transferReceiptError,
+    } = useWaitForTransactionReceipt({ hash: transferHash })
 
-    const { mutate: sendTransaction, data: sendHash, error: sendError } = useSendTransaction()
-    const { isLoading: isConfirmingSend, isSuccess: isSendConfirmed } = useWaitForTransactionReceipt({ hash: sendHash })
+    const { mutate: sendTransaction, data: sendHash, isPending: isAwaitingSendWallet, error: sendError } = useSendTransaction()
+    const {
+        isLoading: isConfirmingSend,
+        isSuccess: isSendConfirmed,
+        error: sendReceiptError,
+    } = useWaitForTransactionReceipt({ hash: sendHash })
 
     function handleTransfer() {
         if (!address || !isCorrectChain) return
@@ -53,8 +62,24 @@ export function TokenTransferPanel() {
         })
     }
 
-    const transferErrorMessage = getErrorMessage(writeError)
-    const sendErrorMessage = getErrorMessage(sendError)
+    const transferError = writeError ?? transferReceiptError
+    const sendTransactionError = sendError ?? sendReceiptError
+    const transferState = resolveTransactionState({
+        isAwaitingWallet: isAwaitingTransferWallet,
+        isConfirming: isConfirmingTransfer,
+        isSuccess: isTransferConfirmed,
+        error: transferError,
+    })
+    const sendState = resolveTransactionState({
+        isAwaitingWallet: isAwaitingSendWallet,
+        isConfirming: isConfirmingSend,
+        isSuccess: isSendConfirmed,
+        error: sendTransactionError,
+    })
+    const transferErrorMessage = getErrorMessage(transferError)
+    const sendErrorMessage = getErrorMessage(sendTransactionError)
+    const isTransferBusy = transferState === 'awaiting-wallet' || transferState === 'confirming'
+    const isSendBusy = sendState === 'awaiting-wallet' || sendState === 'confirming'
 
     return (
         <div className="space-y-4">
@@ -79,24 +104,28 @@ export function TokenTransferPanel() {
             </p>
 
             <div className="space-y-2">
-                <Button className="w-full" onClick={handleTransfer} disabled={!address || !isCorrectChain || !!simulateError || isConfirmingTransfer}>
-                    {isConfirmingTransfer ? '确认中...' : '转账'}
+                <Button className="w-full" onClick={handleTransfer} disabled={!address || !isCorrectChain || !!simulateError || isTransferBusy}>
+                    {transferState === 'awaiting-wallet' && '等待钱包确认…'}
+                    {transferState === 'confirming' && '链上确认中…'}
+                    {!isTransferBusy && '转账'}
                 </Button>
                 {simulateError && <p className="text-sm text-orange-500">预计会失败，暂时无法转账</p>}
-                {isTransferConfirmed && <p className="text-sm text-emerald-300">转账成功!</p>}
+                {transferState === 'success' && <p className="text-sm text-emerald-300">转账成功!</p>}
                 {transferErrorMessage && (
                     <div className="flex items-center gap-2">
                         <p className="text-sm text-destructive">{transferErrorMessage}</p>
-                        <Button variant="ghost" onClick={handleTransfer} disabled={!isCorrectChain}>重试</Button>
+                        <Button variant="ghost" onClick={handleTransfer} disabled={!address || !isCorrectChain || isTransferBusy}>重试</Button>
                     </div>
                 )}
             </div>
 
             <div className="space-y-2 border-t border-gray-200 pt-4 dark:border-neutral-800">
-                <Button className="w-full" variant="outline" onClick={handleSendETH} disabled={!address || !isCorrectChain || isConfirmingSend}>
-                    {isConfirmingSend ? '发送中...' : '发送ETH'}
+                <Button className="w-full" variant="outline" onClick={handleSendETH} disabled={!address || !isCorrectChain || isSendBusy}>
+                    {sendState === 'awaiting-wallet' && '等待钱包确认…'}
+                    {sendState === 'confirming' && '链上确认中…'}
+                    {!isSendBusy && '发送ETH'}
                 </Button>
-                {isSendConfirmed && <p className="text-sm text-emerald-300">发送成功!</p>}
+                {sendState === 'success' && <p className="text-sm text-emerald-300">发送成功!</p>}
                 {sendErrorMessage && <p className="text-sm text-destructive">{sendErrorMessage}</p>}
             </div>
         </div>

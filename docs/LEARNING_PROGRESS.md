@@ -14,15 +14,13 @@
 - 授权流程组合 SIWE Session、钱包账户、目标链和风险检测。
 - 抽取 `useWriteChainGuard`，统一当前链判断、切链动作和切链状态。
 - 授权风险确认与 Session、钱包账户和 `chainId` 绑定；上下文变化后旧意图不可见、不可确认，旧 AI 响应也不能重新激活它。
+- 普通 ETH/ERC-20 转账使用统一五态交易模型，区分钱包确认、链上确认、成功与失败，并同时处理提交错误和回执错误。
 
 ## 当前未提交业务文件
 
 - `components/token/TokenTransferPanel.tsx`
-- `components/token/BatchedTransferDemo.tsx`
-- `components/token/ApprovalRiskDemo.tsx`
-- `lib/hooks/useWalletSession.ts`
-- `lib/hooks/useWriteChainGuard.ts`
-- `lib/hooks/useWriteChainGuard.test.tsx`
+- `lib/transactionState.ts`
+- `lib/transactionState.test.ts`
 
 ## 当前步骤的设计结论
 
@@ -32,7 +30,7 @@ Hook 测试锁定三项行为：目标链通过、其他链拒绝、切链动作
 
 ## 下一步
 
-Review 并提交完整的 Chain Guard 与授权意图失效功能，然后继续补写操作错误反馈与交易状态的一致性。
+把同一交易状态模型接入批量转账和授权流程，并根据两类流程的不同语义补充状态映射。
 
 ## 工作约束
 
