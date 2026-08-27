@@ -18,9 +18,7 @@
 
 ## 当前未提交业务文件
 
-- `components/token/TokenTransferPanel.tsx`
-- `lib/transactionState.ts`
-- `lib/transactionState.test.ts`
+无。`docs/PRODUCT_SPEC.md` 与 `docs/PRODUCTION_ROADMAP.md` 是此前已有的未跟踪产品文档，不属于当前业务步骤。
 
 ## 当前步骤的设计结论
 
