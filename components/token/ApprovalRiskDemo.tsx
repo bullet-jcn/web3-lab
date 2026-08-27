@@ -1,28 +1,47 @@
 'use client'
 
 import { erc20Abi, maxUint256, type Address } from 'viem'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useWaitForTransactionReceipt, useWriteContract } from 'wagmi'
 import { Button } from '../ui/button'
 import { assessRisk } from '@/lib/riskCheck'
 import { useWalletSession } from '@/lib/hooks/useWalletSession'
 import { DEMO_ERC20_ADDRESS, DEMO_SPENDER_ADDRESS, DEMO_TRANSFER_AMOUNT } from '@/lib/constants'
+import { useWriteChainGuard } from '@/lib/hooks/useWriteChainGuard'
 
 interface PendingApproval {
   spender: Address
   amount: bigint
+  contextKey: string
+}
+
+interface ApprovalWarning {
+  message: string
+  contextKey: string
 }
 
 export function ApprovalRiskDemo() {
-  const { session, status: sessionStatus, isAuthenticatedWallet } = useWalletSession()
+  const { session, walletAddress, chainId, status: sessionStatus, isAuthenticatedWallet } = useWalletSession()
+  const { writeChain, isCorrectChain, switchToWriteChain, isSwitchingChain, switchChainError } = useWriteChainGuard()
+  const approvalContextKey = [session?.address, walletAddress, chainId]
+    .map((value) => String(value ?? '').toLowerCase())
+    .join(':')
+  const currentContextKeyRef = useRef(approvalContextKey)
+
+  useEffect(() => {
+    currentContextKeyRef.current = approvalContextKey
+  }, [approvalContextKey])
 
   const { mutate: writeContract, data: approveHash } = useWriteContract()
   const { isLoading: isConfirming, isSuccess: isApproved } = useWaitForTransactionReceipt({ hash: approveHash })
 
-  const [warning, setWarning] = useState<string | null>(null)
+  const [warning, setWarning] = useState<ApprovalWarning | null>(null)
   const [pendingApproval, setPendingApproval] = useState<PendingApproval | null>(null)
+  const visibleWarning = warning?.contextKey === approvalContextKey ? warning.message : null
+  const activePendingApproval = pendingApproval?.contextKey === approvalContextKey ? pendingApproval : null
 
   function submitApproval(spender: Address, amount: bigint) {
+    if (!isAuthenticatedWallet || !isCorrectChain) return
     writeContract({
       address: DEMO_ERC20_ADDRESS,
       abi: erc20Abi,
@@ -32,6 +51,8 @@ export function ApprovalRiskDemo() {
   }
 
   async function handleApprove(amount: bigint) {
+    if (!isAuthenticatedWallet || !isCorrectChain) return
+    const requestContextKey = approvalContextKey
     const spender = DEMO_SPENDER_ADDRESS
     const findings = assessRisk({ functionName: 'approve', args: [spender, amount] })
 
@@ -48,18 +69,20 @@ export function ApprovalRiskDemo() {
 
     if (!res.ok) {
       const { error } = await res.json()
-      setWarning(error ?? '风险检测失败，请稍后重试')
+      if (currentContextKeyRef.current !== requestContextKey) return
+      setWarning({ message: error ?? '风险检测失败，请稍后重试', contextKey: requestContextKey })
       return
     }
 
     const { warning: message } = await res.json()
-    setWarning(message)
-    setPendingApproval({ spender, amount })
+    if (currentContextKeyRef.current !== requestContextKey) return
+    setWarning({ message, contextKey: requestContextKey })
+    setPendingApproval({ spender, amount, contextKey: requestContextKey })
   }
 
   function handleConfirmDespiteRisk() {
-    if (!pendingApproval) return
-    submitApproval(pendingApproval.spender, pendingApproval.amount)
+    if (!activePendingApproval) return
+    submitApproval(activePendingApproval.spender, activePendingApproval.amount)
     setWarning(null)
     setPendingApproval(null)
   }
@@ -75,6 +98,24 @@ export function ApprovalRiskDemo() {
     return <p className="text-sm text-destructive">{message}</p>
   }
 
+  if (!isCorrectChain) {
+    return (
+      <div className="space-y-2 rounded-md bg-orange-50 p-3 dark:bg-orange-950">
+        <p className="text-sm text-orange-600 dark:text-orange-400">
+          授权目标合约部署在 {writeChain.name}，请先切换网络后再进行风险检测和签名。
+        </p>
+        <Button
+          variant="outline"
+          onClick={switchToWriteChain}
+          disabled={isSwitchingChain}
+        >
+          {isSwitchingChain ? '切换中…' : `切换到 ${writeChain.name}`}
+        </Button>
+        {switchChainError && <p className="text-sm text-destructive">切换网络失败: {switchChainError.message}</p>}
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-2">
       <div className="flex gap-2">
@@ -86,10 +127,10 @@ export function ApprovalRiskDemo() {
         </Button>
       </div>
 
-      {warning && (
+      {visibleWarning && (
         <div className="rounded-md bg-orange-50 p-3 dark:bg-orange-950">
-          <p className="text-sm text-orange-600 dark:text-orange-400">{warning}</p>
-          {pendingApproval && (
+          <p className="text-sm text-orange-600 dark:text-orange-400">{visibleWarning}</p>
+          {activePendingApproval && (
             <Button variant="destructive" onClick={handleConfirmDespiteRisk} className="mt-2">
               我已了解风险，继续
             </Button>
