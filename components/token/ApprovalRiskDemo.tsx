@@ -8,6 +8,8 @@ import { assessRisk } from '@/lib/riskCheck'
 import { useWalletSession } from '@/lib/hooks/useWalletSession'
 import { DEMO_ERC20_ADDRESS, DEMO_SPENDER_ADDRESS, DEMO_TRANSFER_AMOUNT } from '@/lib/constants'
 import { useWriteChainGuard } from '@/lib/hooks/useWriteChainGuard'
+import { resolveTransactionState } from '@/lib/transactionState'
+import { getErrorMessage } from '@/lib/errors'
 
 interface PendingApproval {
   spender: Address
@@ -32,13 +34,32 @@ export function ApprovalRiskDemo() {
     currentContextKeyRef.current = approvalContextKey
   }, [approvalContextKey])
 
-  const { mutate: writeContract, data: approveHash } = useWriteContract()
-  const { isLoading: isConfirming, isSuccess: isApproved } = useWaitForTransactionReceipt({ hash: approveHash })
+  const {
+    mutate: writeContract,
+    data: approveHash,
+    isPending: isAwaitingWallet,
+    error: writeError,
+  } = useWriteContract()
+  const {
+    isLoading: isConfirming,
+    isSuccess: isApproved,
+    error: receiptError,
+  } = useWaitForTransactionReceipt({ hash: approveHash })
 
   const [warning, setWarning] = useState<ApprovalWarning | null>(null)
   const [pendingApproval, setPendingApproval] = useState<PendingApproval | null>(null)
+  const [isRiskChecking, setIsRiskChecking] = useState(false)
   const visibleWarning = warning?.contextKey === approvalContextKey ? warning.message : null
   const activePendingApproval = pendingApproval?.contextKey === approvalContextKey ? pendingApproval : null
+  const approvalError = writeError ?? receiptError
+  const approvalState = resolveTransactionState({
+    isAwaitingWallet,
+    isConfirming,
+    isSuccess: isApproved,
+    error: approvalError,
+  })
+  const approvalErrorMessage = getErrorMessage(approvalError)
+  const isApprovalBusy = isRiskChecking || approvalState === 'awaiting-wallet' || approvalState === 'confirming'
 
   function submitApproval(spender: Address, amount: bigint) {
     if (!isAuthenticatedWallet || !isCorrectChain) return
@@ -51,7 +72,7 @@ export function ApprovalRiskDemo() {
   }
 
   async function handleApprove(amount: bigint) {
-    if (!isAuthenticatedWallet || !isCorrectChain) return
+    if (!isAuthenticatedWallet || !isCorrectChain || isApprovalBusy) return
     const requestContextKey = approvalContextKey
     const spender = DEMO_SPENDER_ADDRESS
     const findings = assessRisk({ functionName: 'approve', args: [spender, amount] })
@@ -61,27 +82,38 @@ export function ApprovalRiskDemo() {
       return
     }
 
-    const res = await fetch('/api/risk-copilot', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ findings }),
-    })
+    setWarning(null)
+    setPendingApproval(null)
+    setIsRiskChecking(true)
 
-    if (!res.ok) {
-      const { error } = await res.json()
+    try {
+      const res = await fetch('/api/risk-copilot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ findings }),
+      })
+
+      if (!res.ok) {
+        const { error } = await res.json()
+        if (currentContextKeyRef.current !== requestContextKey) return
+        setWarning({ message: error ?? '风险检测失败，请稍后重试', contextKey: requestContextKey })
+        return
+      }
+
+      const { warning: message } = await res.json()
       if (currentContextKeyRef.current !== requestContextKey) return
-      setWarning({ message: error ?? '风险检测失败，请稍后重试', contextKey: requestContextKey })
-      return
+      setWarning({ message, contextKey: requestContextKey })
+      setPendingApproval({ spender, amount, contextKey: requestContextKey })
+    } catch {
+      if (currentContextKeyRef.current !== requestContextKey) return
+      setWarning({ message: '风险检测服务暂时无法连接，请稍后重试', contextKey: requestContextKey })
+    } finally {
+      setIsRiskChecking(false)
     }
-
-    const { warning: message } = await res.json()
-    if (currentContextKeyRef.current !== requestContextKey) return
-    setWarning({ message, contextKey: requestContextKey })
-    setPendingApproval({ spender, amount, contextKey: requestContextKey })
   }
 
   function handleConfirmDespiteRisk() {
-    if (!activePendingApproval) return
+    if (!activePendingApproval || isApprovalBusy) return
     submitApproval(activePendingApproval.spender, activePendingApproval.amount)
     setWarning(null)
     setPendingApproval(null)
@@ -119,10 +151,10 @@ export function ApprovalRiskDemo() {
   return (
     <div className="space-y-2">
       <div className="flex gap-2">
-        <Button onClick={() => handleApprove(DEMO_TRANSFER_AMOUNT)} disabled={isConfirming}>
+        <Button onClick={() => handleApprove(DEMO_TRANSFER_AMOUNT)} disabled={isApprovalBusy}>
           小额授权（推荐）
         </Button>
-        <Button variant="destructive" onClick={() => handleApprove(maxUint256)} disabled={isConfirming}>
+        <Button variant="destructive" onClick={() => handleApprove(maxUint256)} disabled={isApprovalBusy}>
           无限额度授权（演示风险）
         </Button>
       </div>
@@ -131,15 +163,18 @@ export function ApprovalRiskDemo() {
         <div className="rounded-md bg-orange-50 p-3 dark:bg-orange-950">
           <p className="text-sm text-orange-600 dark:text-orange-400">{visibleWarning}</p>
           {activePendingApproval && (
-            <Button variant="destructive" onClick={handleConfirmDespiteRisk} className="mt-2">
+            <Button variant="destructive" onClick={handleConfirmDespiteRisk} className="mt-2" disabled={isApprovalBusy}>
               我已了解风险，继续
             </Button>
           )}
         </div>
       )}
 
-      {isConfirming && <p className="text-sm text-muted-foreground">确认中...</p>}
-      {isApproved && <p className="text-sm text-emerald-300">授权成功！</p>}
+      {isRiskChecking && <p className="text-sm text-muted-foreground">AI 风险检测中…</p>}
+      {approvalState === 'awaiting-wallet' && <p className="text-sm text-muted-foreground">等待钱包确认授权…</p>}
+      {approvalState === 'confirming' && <p className="text-sm text-muted-foreground">授权交易链上确认中…</p>}
+      {approvalState === 'success' && <p className="text-sm text-emerald-300">授权成功！</p>}
+      {approvalErrorMessage && <p className="text-sm text-destructive">{approvalErrorMessage}</p>}
     </div>
   )
 }
