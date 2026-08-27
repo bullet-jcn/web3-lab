@@ -2,11 +2,17 @@
 
 import { getErrorMessage } from "@/lib/errors";
 import { DEMO_ERC20_ADDRESS, DEMO_RECIPIENT_C, DEMO_TRANSFER_AMOUNT } from "@/lib/constants";
-import { erc20Abi, parseEther } from "viem";
+import { erc20Abi, parseEther, type Hash, type ReplacementReason } from "viem";
+import { useState } from "react";
 import { useConnection, useReadContract, useSendTransaction, useSimulateContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
 import { Button } from "@/components/ui/button";
 import { useWriteChainGuard } from "@/lib/hooks/useWriteChainGuard";
-import { resolveTransactionState } from "@/lib/transactionState";
+import { getReplacementMessage, resolveTransactionState } from "@/lib/transactionState";
+
+interface ReplacementInfo {
+    reason: ReplacementReason
+    hash: Hash
+}
 
 export function TokenTransferPanel() {
     const { address } = useConnection()
@@ -31,21 +37,30 @@ export function TokenTransferPanel() {
     })
 
     const { mutate: writeContract, data: transferHash, isPending: isAwaitingTransferWallet, error: writeError } = useWriteContract()
+    const [transferReplacement, setTransferReplacement] = useState<ReplacementInfo | null>(null)
     const {
         isLoading: isConfirmingTransfer,
         isSuccess: isTransferConfirmed,
         error: transferReceiptError,
-    } = useWaitForTransactionReceipt({ hash: transferHash })
+    } = useWaitForTransactionReceipt({
+        hash: transferHash,
+        onReplaced: ({ reason, transaction }) => setTransferReplacement({ reason, hash: transaction.hash }),
+    })
 
     const { mutate: sendTransaction, data: sendHash, isPending: isAwaitingSendWallet, error: sendError } = useSendTransaction()
+    const [sendReplacement, setSendReplacement] = useState<ReplacementInfo | null>(null)
     const {
         isLoading: isConfirmingSend,
         isSuccess: isSendConfirmed,
         error: sendReceiptError,
-    } = useWaitForTransactionReceipt({ hash: sendHash })
+    } = useWaitForTransactionReceipt({
+        hash: sendHash,
+        onReplaced: ({ reason, transaction }) => setSendReplacement({ reason, hash: transaction.hash }),
+    })
 
     function handleTransfer() {
         if (!address || !isCorrectChain) return
+        setTransferReplacement(null)
         writeContract({
             address: DEMO_ERC20_ADDRESS,
             abi: erc20Abi,
@@ -56,6 +71,7 @@ export function TokenTransferPanel() {
 
     function handleSendETH() {
         if (!address || !isCorrectChain) return
+        setSendReplacement(null)
         sendTransaction({
             to: DEMO_RECIPIENT_C,
             value: parseEther('0.0001'), // 发送一点点真实的SepoliaETH
@@ -69,15 +85,19 @@ export function TokenTransferPanel() {
         isConfirming: isConfirmingTransfer,
         isSuccess: isTransferConfirmed,
         error: transferError,
+        replacementReason: transferReplacement?.reason,
     })
     const sendState = resolveTransactionState({
         isAwaitingWallet: isAwaitingSendWallet,
         isConfirming: isConfirmingSend,
         isSuccess: isSendConfirmed,
         error: sendTransactionError,
+        replacementReason: sendReplacement?.reason,
     })
     const transferErrorMessage = getErrorMessage(transferError)
     const sendErrorMessage = getErrorMessage(sendTransactionError)
+    const transferReplacementMessage = getReplacementMessage(transferReplacement?.reason)
+    const sendReplacementMessage = getReplacementMessage(sendReplacement?.reason)
     const isTransferBusy = transferState === 'awaiting-wallet' || transferState === 'confirming'
     const isSendBusy = sendState === 'awaiting-wallet' || sendState === 'confirming'
 
@@ -111,6 +131,11 @@ export function TokenTransferPanel() {
                 </Button>
                 {simulateError && <p className="text-sm text-orange-500">预计会失败，暂时无法转账</p>}
                 {transferState === 'success' && <p className="text-sm text-emerald-300">转账成功!</p>}
+                {transferReplacementMessage && (
+                    <p className={transferReplacement?.reason === 'repriced' ? 'text-sm text-muted-foreground' : 'text-sm text-orange-600 dark:text-orange-400'}>
+                        {transferReplacementMessage}
+                    </p>
+                )}
                 {transferErrorMessage && (
                     <div className="flex items-center gap-2">
                         <p className="text-sm text-destructive">{transferErrorMessage}</p>
@@ -126,6 +151,11 @@ export function TokenTransferPanel() {
                     {!isSendBusy && '发送ETH'}
                 </Button>
                 {sendState === 'success' && <p className="text-sm text-emerald-300">发送成功!</p>}
+                {sendReplacementMessage && (
+                    <p className={sendReplacement?.reason === 'repriced' ? 'text-sm text-muted-foreground' : 'text-sm text-orange-600 dark:text-orange-400'}>
+                        {sendReplacementMessage}
+                    </p>
+                )}
                 {sendErrorMessage && <p className="text-sm text-destructive">{sendErrorMessage}</p>}
             </div>
         </div>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolveTransactionState } from './transactionState'
+import { getReplacementMessage, resolveTransactionState } from './transactionState'
 
 const idleInput = {
   isAwaitingWallet: false,
@@ -29,5 +29,15 @@ describe('resolveTransactionState', () => {
       isConfirming: true,
       error: new Error('reverted'),
     })).toBe('error')
+  })
+
+  it('does not report a cancelled or content-replaced transaction as success', () => {
+    expect(resolveTransactionState({ ...idleInput, isSuccess: true, replacementReason: 'cancelled' })).toBe('cancelled')
+    expect(resolveTransactionState({ ...idleInput, isSuccess: true, replacementReason: 'replaced' })).toBe('replaced')
+  })
+
+  it('allows a repriced transaction to succeed because its intent is unchanged', () => {
+    expect(resolveTransactionState({ ...idleInput, isSuccess: true, replacementReason: 'repriced' })).toBe('success')
+    expect(getReplacementMessage('repriced')).toContain('加速')
   })
 })
