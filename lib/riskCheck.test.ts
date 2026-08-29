@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { maxUint256, type Address } from 'viem'
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
-import { assessRisk, MAX_RISK_FINDINGS, parseRiskFindingsRequest } from './riskCheck'
+import { assessRisk, formatDeterministicRiskWarning, MAX_RISK_FINDINGS, parseRiskFindingsRequest } from './riskCheck'
 
 function randomAddress(): Address {
   return privateKeyToAccount(generatePrivateKey()).address
@@ -59,5 +59,19 @@ describe('parseRiskFindingsRequest', () => {
     expect(parseRiskFindingsRequest({
       findings: Array.from({ length: MAX_RISK_FINDINGS + 1 }, () => finding),
     })).toEqual({ ok: false, reason: `findings 最多允许 ${MAX_RISK_FINDINGS} 条` })
+  })
+})
+
+describe('formatDeterministicRiskWarning', () => {
+  it('explains the evidence without relying on an AI provider', () => {
+    const spender = randomAddress()
+
+    const warning = formatDeterministicRiskWarning([
+      { severity: 'high', code: 'UNLIMITED_APPROVAL', detail: { spender } },
+    ])
+
+    expect(warning).toContain('无限额度代币使用权')
+    expect(warning).toContain(spender)
+    expect(warning).toContain('不会随本次操作自动失效')
   })
 })

@@ -54,6 +54,15 @@ export function parseRiskFindingsRequest(value: unknown): RiskFindingsParseResul
   return { ok: true, findings }
 }
 
+export function formatDeterministicRiskWarning(findings: readonly RiskFinding[]): string {
+  return findings.map((finding) => {
+    if (finding.code === 'UNLIMITED_APPROVAL') {
+      return `检测到高风险：你正在授予 ${finding.detail.spender} 无限额度代币使用权。该权限不会随本次操作自动失效；仅在确认该地址可信且确有需要时继续。`
+    }
+    return ''
+  }).filter(Boolean).join('\n')
+}
+
 export function assessRisk(call: { functionName: string; args: readonly unknown[] }): RiskFinding[] {
   if (call.functionName === 'approve'
     && call.args[1] === maxUint256

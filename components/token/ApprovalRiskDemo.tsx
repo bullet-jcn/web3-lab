@@ -4,7 +4,7 @@ import { erc20Abi, maxUint256, type Address, type Hash, type ReplacementReason }
 import { useEffect, useRef, useState } from 'react'
 import { useWaitForTransactionReceipt, useWriteContract } from 'wagmi'
 import { Button } from '../ui/button'
-import { assessRisk } from '@/lib/riskCheck'
+import { assessRisk, formatDeterministicRiskWarning } from '@/lib/riskCheck'
 import { useWalletSession } from '@/lib/hooks/useWalletSession'
 import { DEMO_ERC20_ADDRESS, DEMO_SPENDER_ADDRESS, DEMO_TRANSFER_AMOUNT } from '@/lib/constants'
 import { useWriteChainGuard } from '@/lib/hooks/useWriteChainGuard'
@@ -146,6 +146,7 @@ export function ApprovalRiskDemo() {
     const requestContextKey = approvalContextKey
     const spender = DEMO_SPENDER_ADDRESS
     const findings = assessRisk({ functionName: 'approve', args: [spender, amount] })
+    const deterministicWarning = formatDeterministicRiskWarning(findings)
 
     if (findings.length === 0) {
       submitApproval(spender, amount)
@@ -164,19 +165,35 @@ export function ApprovalRiskDemo() {
       })
 
       if (!res.ok) {
-        const { error } = await res.json()
+        let errorMessage = '风险检测失败，请稍后重试'
+        try {
+          const body: unknown = await res.json()
+          if (body && typeof body === 'object' && 'error' in body && typeof body.error === 'string') {
+            errorMessage = body.error
+          }
+        } catch {
+          // An explicit non-2xx response still blocks approval even if its body is malformed.
+        }
         if (currentContextKeyRef.current !== requestContextKey) return
-        setWarning({ message: error ?? '风险检测失败，请稍后重试', contextKey: requestContextKey })
+        setWarning({ message: errorMessage, contextKey: requestContextKey })
         return
       }
 
-      const { warning: message } = await res.json()
+      const body: unknown = await res.json()
+      if (!body || typeof body !== 'object' || !('warning' in body) || typeof body.warning !== 'string' || !body.warning.trim()) {
+        throw new Error('risk explanation response is malformed')
+      }
+      const message = body.warning
       if (currentContextKeyRef.current !== requestContextKey) return
       setWarning({ message, contextKey: requestContextKey })
       setPendingApproval({ spender, amount, contextKey: requestContextKey })
     } catch {
       if (currentContextKeyRef.current !== requestContextKey) return
-      setWarning({ message: '风险检测服务暂时无法连接，请稍后重试', contextKey: requestContextKey })
+      setWarning({
+        message: `AI 解释服务暂时无法连接。${deterministicWarning}`,
+        contextKey: requestContextKey,
+      })
+      setPendingApproval({ spender, amount, contextKey: requestContextKey })
     } finally {
       setIsRiskChecking(false)
     }

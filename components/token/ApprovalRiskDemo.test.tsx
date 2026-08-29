@@ -112,6 +112,36 @@ describe('ApprovalRiskDemo lifecycle', () => {
     expect(mocks.writeContract).not.toHaveBeenCalled()
   })
 
+  it('keeps deterministic risk evidence and explicit confirmation when the API is unreachable', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network error')))
+    render(<ApprovalRiskDemo />)
+
+    fireEvent.click(screen.getByRole('button', { name: '无限额度授权（演示风险）' }))
+
+    expect(await screen.findByText(/无限额度代币使用权/)).toBeInTheDocument()
+    expect(screen.getByText(/AI 解释服务暂时无法连接/)).toBeInTheDocument()
+    const confirmButton = screen.getByRole('button', { name: '我已了解风险，继续' })
+    expect(mocks.writeContract).not.toHaveBeenCalled()
+
+    fireEvent.click(confirmButton)
+
+    expect(mocks.writeContract).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not treat an explicit API rejection as an AI-only outage', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false,
+      json: async () => { throw new Error('malformed error body') },
+    }))
+    render(<ApprovalRiskDemo />)
+
+    fireEvent.click(screen.getByRole('button', { name: '无限额度授权（演示风险）' }))
+
+    expect(await screen.findByText('风险检测失败，请稍后重试')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '我已了解风险，继续' })).not.toBeInTheDocument()
+    expect(mocks.writeContract).not.toHaveBeenCalled()
+  })
+
   it('restores a pending approval and resumes its receipt query', async () => {
     seedPendingApproval()
     mocks.isConfirming = true

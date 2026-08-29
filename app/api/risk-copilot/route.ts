@@ -1,5 +1,5 @@
 import { getSession } from '@/lib/auth/session'
-import { parseRiskFindingsRequest } from '@/lib/riskCheck'
+import { formatDeterministicRiskWarning, parseRiskFindingsRequest } from '@/lib/riskCheck'
 import { GoogleGenAI, type GenerateContentResponse } from '@google/genai'
 import { NextResponse } from 'next/server'
 
@@ -65,7 +65,7 @@ export async function POST(request: Request): Promise<Response> {
   const { findings } = parsed
 
   if (findings.length === 0) {
-    return NextResponse.json({ warning: NO_RISK_MESSAGE })
+    return NextResponse.json({ warning: NO_RISK_MESSAGE, degraded: false })
   }
 
   const client = new GoogleGenAI({})
@@ -79,10 +79,19 @@ export async function POST(request: Request): Promise<Response> {
     })
   } catch (err) {
     console.error('risk-copilot: Gemini API call failed', err)
-    return NextResponse.json({ error: 'AI 风险提示服务暂时不可用，请谨慎核对交易细节后再决定' }, { status: 502 })
+    return NextResponse.json({
+      warning: `AI 解释服务暂时不可用。${formatDeterministicRiskWarning(findings)}`,
+      degraded: true,
+    })
   }
 
-  const warning = response.text ?? '无法生成风险提示，请谨慎核对交易细节。'
+  const warning = response.text?.trim()
+  if (!warning) {
+    return NextResponse.json({
+      warning: `AI 未返回解释。${formatDeterministicRiskWarning(findings)}`,
+      degraded: true,
+    })
+  }
 
-  return NextResponse.json({ warning })
+  return NextResponse.json({ warning, degraded: false })
 }

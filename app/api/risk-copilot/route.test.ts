@@ -79,6 +79,7 @@ describe('POST /api/risk-copilot', () => {
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({
       warning: '没有检测到已知的风险模式，但这不代表绝对安全，请仍然核对交易细节后再确认。',
+      degraded: false,
     })
     expect(mocks.generateContent).not.toHaveBeenCalled()
   })
@@ -87,9 +88,35 @@ describe('POST /api/risk-copilot', () => {
     const response = await POST(request(JSON.stringify({ findings: [finding] })))
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ warning: '无限授权会持续开放代币权限。' })
+    expect(await response.json()).toEqual({ warning: '无限授权会持续开放代币权限。', degraded: false })
     expect(mocks.generateContent).toHaveBeenCalledWith(expect.objectContaining({
       contents: JSON.stringify([finding]),
     }))
+  })
+
+  it('returns deterministic evidence when the AI provider fails', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    mocks.generateContent.mockRejectedValueOnce(new Error('provider unavailable'))
+
+    const response = await POST(request(JSON.stringify({ findings: [finding] })))
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      warning: expect.stringContaining('无限额度代币使用权'),
+      degraded: true,
+    })
+    consoleError.mockRestore()
+  })
+
+  it('falls back when the AI provider returns no explanation', async () => {
+    mocks.generateContent.mockResolvedValueOnce({ text: '   ' })
+
+    const response = await POST(request(JSON.stringify({ findings: [finding] })))
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      warning: expect.stringContaining('无限额度代币使用权'),
+      degraded: true,
+    })
   })
 })
