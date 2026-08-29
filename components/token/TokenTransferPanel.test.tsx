@@ -96,10 +96,28 @@ describe('TokenTransferPanel pending transactions', () => {
     mocks.sendTransaction.mockImplementation((_request, options) => options.onSuccess(SEND_HASH))
     render(<TokenTransferPanel />)
 
+    fireEvent.change(screen.getByLabelText('ETH 收款地址'), { target: { value: '0x8F7b86Fe8f1a5CaB00Aa66cBb3E3BBF6a79535EE' } })
+    fireEvent.change(screen.getByLabelText('ETH 数量'), { target: { value: '0.0001' } })
     fireEvent.click(screen.getByRole('button', { name: '发送ETH' }))
 
     await waitFor(() => expect(localStorage.getItem(storageKey('native-transfer'))).toContain(SEND_HASH))
     expect(localStorage.getItem(storageKey('erc20-transfer'))).toBeNull()
+    expect(mocks.sendTransaction).toHaveBeenCalledWith({
+      to: '0x8F7b86Fe8f1a5CaB00Aa66cBb3E3BBF6a79535EE',
+      value: BigInt('100000000000000'),
+    }, expect.any(Object))
+  })
+
+  it('blocks invalid native transfer input before the wallet request', () => {
+    render(<TokenTransferPanel />)
+
+    fireEvent.change(screen.getByLabelText('ETH 收款地址'), { target: { value: 'not-an-address' } })
+    fireEvent.change(screen.getByLabelText('ETH 数量'), { target: { value: '0' } })
+
+    expect(screen.getByText('请输入有效的 EVM 地址')).toBeInTheDocument()
+    expect(screen.getByText('转账数量必须大于 0')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '发送ETH' })).toBeDisabled()
+    expect(mocks.sendTransaction).not.toHaveBeenCalled()
   })
 
   it('clears a restored transaction after confirmation', async () => {

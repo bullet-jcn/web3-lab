@@ -2,13 +2,15 @@
 
 import { getErrorMessage } from "@/lib/errors";
 import { DEMO_ERC20_ADDRESS, DEMO_RECIPIENT_C, DEMO_TRANSFER_AMOUNT } from "@/lib/constants";
-import { erc20Abi, parseEther, type Hash, type ReplacementReason } from "viem";
+import { erc20Abi, type Hash, type ReplacementReason } from "viem";
 import { useEffect, useState } from "react";
 import { useConnection, useReadContract, useSendTransaction, useSimulateContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
 import { Button } from "@/components/ui/button";
 import { useWriteChainGuard } from "@/lib/hooks/useWriteChainGuard";
 import { getReplacementMessage, resolveTransactionState } from "@/lib/transactionState";
 import { clearPendingTransaction, loadPendingTransaction, savePendingTransaction, type PendingTransactionKind } from "@/lib/pendingTransactionStorage";
+import { parseNativeTransferInput } from "@/lib/nativeTransferInput";
+import { Input } from "@/components/ui/input";
 
 interface ReplacementInfo {
     reason: ReplacementReason
@@ -29,6 +31,9 @@ export function TokenTransferPanel() {
     const { chainId, writeChain, isCorrectChain, switchToWriteChain, isSwitchingChain, switchChainError } = useWriteChainGuard()
     const transferContextKey = transactionContextKey(address, chainId, 'erc20-transfer')
     const sendContextKey = transactionContextKey(address, chainId, 'native-transfer')
+    const [nativeRecipient, setNativeRecipient] = useState('')
+    const [nativeAmount, setNativeAmount] = useState('')
+    const nativeTransferInput = parseNativeTransferInput(nativeRecipient, nativeAmount)
 
     const { data: tokenBalance } = useReadContract({
         address: DEMO_ERC20_ADDRESS,
@@ -149,11 +154,11 @@ export function TokenTransferPanel() {
     }
 
     function handleSendETH() {
-        if (!address || !isCorrectChain) return
+        if (!address || !isCorrectChain || !nativeTransferInput.ok) return
         setSendReplacement(null)
         sendTransaction({
-            to: DEMO_RECIPIENT_C,
-            value: parseEther('0.0001'), // 发送一点点真实的SepoliaETH
+            to: nativeTransferInput.recipient,
+            value: nativeTransferInput.value,
         }, {
             onSuccess: (hash) => trackSubmittedTransaction('native-transfer', sendContextKey, hash, setTrackedSend),
         })
@@ -226,7 +231,37 @@ export function TokenTransferPanel() {
             </div>
 
             <div className="space-y-2 border-t border-gray-200 pt-4 dark:border-neutral-800">
-                <Button className="w-full" variant="outline" onClick={handleSendETH} disabled={!address || !isCorrectChain || isSendBusy}>
+                <div className="space-y-1">
+                    <label className="text-sm font-medium" htmlFor="native-recipient">ETH 收款地址</label>
+                    <Input
+                        id="native-recipient"
+                        value={nativeRecipient}
+                        onChange={(event) => setNativeRecipient(event.target.value)}
+                        placeholder="0x…"
+                        autoComplete="off"
+                        spellCheck={false}
+                        aria-invalid={!!nativeRecipient && !nativeTransferInput.ok && !!nativeTransferInput.recipientError}
+                    />
+                    {!!nativeRecipient && !nativeTransferInput.ok && nativeTransferInput.recipientError && (
+                        <p className="text-sm text-destructive">{nativeTransferInput.recipientError}</p>
+                    )}
+                </div>
+                <div className="space-y-1">
+                    <label className="text-sm font-medium" htmlFor="native-amount">ETH 数量</label>
+                    <Input
+                        id="native-amount"
+                        value={nativeAmount}
+                        onChange={(event) => setNativeAmount(event.target.value)}
+                        placeholder="0.001"
+                        inputMode="decimal"
+                        autoComplete="off"
+                        aria-invalid={!!nativeAmount && !nativeTransferInput.ok && !!nativeTransferInput.amountError}
+                    />
+                    {!!nativeAmount && !nativeTransferInput.ok && nativeTransferInput.amountError && (
+                        <p className="text-sm text-destructive">{nativeTransferInput.amountError}</p>
+                    )}
+                </div>
+                <Button className="w-full" variant="outline" onClick={handleSendETH} disabled={!address || !isCorrectChain || !nativeTransferInput.ok || isSendBusy}>
                     {sendState === 'awaiting-wallet' && '等待钱包确认…'}
                     {sendState === 'confirming' && '链上确认中…'}
                     {!isSendBusy && '发送ETH'}
