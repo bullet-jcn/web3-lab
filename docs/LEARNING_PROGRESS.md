@@ -30,10 +30,13 @@
 - 完成路线图复核：交易生命周期与刷新恢复主体已收口；Milestone 1 剩余风险集中在 API schema、AI 确定性降级和状态变更请求的 Origin 防护。
 - `/api/risk-copilot` 已建立运行时输入 schema 与成本边界：只接受服务端支持的确定性 finding，限制 JSON 类型、16 KiB 请求体和 10 条 findings，非法输入不会调用 AI。
 - 授权风险提示已支持 AI 确定性降级：Gemini 失败、空响应或客户端断网时仍展示规则证据与 spender，AI 只增强解释，不决定风险结论。
+- 状态变更 API 已加入共享同源 Origin 防护：登录验证、登出、watchlist 写入和风险 AI 端点默认拒绝缺失或跨站来源，代理头仅在显式信任时使用。
 
 ## 当前未提交业务文件
 
-无。`docs/PRODUCT_SPEC.md` 与 `docs/PRODUCTION_ROADMAP.md` 是此前已有的未跟踪产品文档，不属于当前业务步骤。
+无。Origin 防护业务代码与测试已提交，当前仅更新本恢复文件。
+
+`docs/PRODUCT_SPEC.md` 与 `docs/PRODUCTION_ROADMAP.md` 是此前已有的未跟踪产品文档，不属于当前业务步骤。
 
 ## 最近完成的业务提交
 
@@ -50,6 +53,7 @@
 - `8a885b6 feat: restore sequential batch progress`
 - `477a119 fix: validate risk copilot input`
 - `9ef7eca feat: preserve deterministic risk warnings`
+- `4408e92 feat: enforce same-origin API mutations`
 
 ## 当前步骤的设计结论
 
@@ -77,9 +81,11 @@ Hook 测试锁定三项行为：目标链通过、其他链拒绝、切链动作
 
 确定性 formatter 与 `assessRisk` 共享同一个判别 finding：服务端 AI 调用失败或无文本时返回 `degraded: true` 和规则文案，客户端连 Route 都无法访问时调用同一 formatter。只有这类解释服务降级会保留显式“继续授权”入口；明确的非 2xx API 拒绝仍阻止操作，即使错误响应体损坏也不会误走降级路径。
 
+Origin 防护优先使用固定 `APP_ORIGIN`；未配置时比较请求 URL，只有 `TRUST_PROXY_HEADERS=true` 才读取 `X-Forwarded-Host/Proto`。这避免直接暴露的应用被伪造代理头绕过。保护范围是 `auth/verify`、`auth/logout`、watchlist `POST/DELETE` 和 `risk-copilot POST`；只读 session/watchlist GET 不校验，nonce GET 只轮换短期登录 nonce，后续验证仍受 nonce、domain 与 Origin 三层约束。
+
 ## 下一步
 
-单独设计并实现状态变更 Route Handler 的同源 Origin 防护，先盘点需要保护的端点与可信代理边界，再编写共享校验和测试。
+重新审计 Milestone 1 的 API body 与 SIWE 边界，确认剩余风险并判断是否可以进入真实转账产品 Batch。
 
 ## 工作约束
 
