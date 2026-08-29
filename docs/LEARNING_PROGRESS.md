@@ -4,7 +4,7 @@
 
 ## 当前目标
 
-建立安全、可解释的 Web3 写操作流程，并在每一步保留可 Review 的未提交 Diff。
+推进 Milestone 2 / Batch C 的真实转账工作流，并在每一步保留可 Review 的未提交 Diff。Milestone 1 完整学习复盘已应用户要求暂停，后续从“Chain Registry 与写操作链边界”继续。
 
 ## 已完成
 
@@ -32,10 +32,11 @@
 - 授权风险提示已支持 AI 确定性降级：Gemini 失败、空响应或客户端断网时仍展示规则证据与 spender，AI 只增强解释，不决定风险结论。
 - 状态变更 API 已加入共享同源 Origin 防护：登录验证、登出、watchlist 写入和风险 AI 端点默认拒绝缺失或跨站来源，代理头仅在显式信任时使用。
 - Milestone 1 收尾审计已补齐 SIWE `uri`/version/scheme 绑定、登录与 watchlist JSON 类型及字节边界，以及全站 CSP、frame、MIME、referrer 和 permissions 安全响应头；现有功能满足 Milestone 1 的代码退出条件。
+- Milestone 2 / Batch C 已启动：原生 ETH 转账不再使用固定收款人和金额，新增确定性的地址与 18 位精度金额解析，在钱包请求前拒绝非法地址、零地址、非正数和不可精确表示的输入。
 
 ## 当前未提交业务文件
 
-无。Milestone 1 收尾代码与测试已提交，当前仅更新本恢复文件。
+无。Batch C 首个原生 ETH 输入切片已提交，当前仅更新本恢复文件。
 
 `docs/PRODUCT_SPEC.md` 与 `docs/PRODUCTION_ROADMAP.md` 是此前已有的未跟踪产品文档，不属于当前业务步骤。
 
@@ -56,6 +57,7 @@
 - `9ef7eca feat: preserve deterministic risk warnings`
 - `4408e92 feat: enforce same-origin API mutations`
 - `e7d8a2f fix: close milestone one security gaps`
+- `171beb9 feat: validate native transfer input`
 
 ## 当前步骤的设计结论
 
@@ -93,9 +95,11 @@ Milestone 1 的最终审计把“浏览器请求来源”和“钱包实际签�
 
 Milestone 1 退出证据：账户不一致时授权 UI 被阻断；写路径绑定 Sepolia；单笔、授权、原子批次和顺序降级均以回执终态为准并处理替换/取消/部分成功；待确认状态可按账户、链和交易类型恢复；API schema、AI 确定性降级、Origin 与安全头均有测试。最终验证为 21 个测试文件、134 项测试通过，TypeScript、ESLint、Diff 检查和 Next.js 生产构建通过。
 
+Batch C 首个切片只替换原生 ETH 的固定输入，不同时改 ERC-20、余额、ENS、Gas 和 Review Screen。地址通过 viem 严格校验后规范化为 checksum address，并显式阻止零地址；金额只接受普通十进制定点格式，最多 18 位小数，再用 `parseEther` 转成整数 wei。表单永远不使用 JavaScript 浮点数，解析失败时也不会触发钱包请求。原有回执状态机、替换处理和待确认交易恢复保持不变。
+
 ## 下一步
 
-Milestone 1 已关闭。下一步先进行截至目前的完整学习复盘，覆盖钱包身份、链边界、交易状态机、替换/批量语义、持久化、API/AI/SIWE/Origin 安全与测试证据；复盘完成前不进入 Milestone 2 / Batch C。
+为 ERC-20 建立 token metadata/decimals 驱动的金额解析边界，再接入余额与不足额校验；暂停的 Milestone 1 学习复盘保留，待用户恢复。
 
 ## 工作约束
 
