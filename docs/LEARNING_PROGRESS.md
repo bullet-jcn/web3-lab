@@ -28,6 +28,7 @@
 - 原子批次已接入待确认批量存储：钱包返回 ID 后保存，刷新后只恢复状态查询；明确终态后清理，查询错误时保留记录并阻止重复发送。
 - 顺序降级已接入阶段化存储与刷新恢复：分别恢复第一笔或第二笔回执；两次钱包请求之间刷新时只展示中断状态，绝不自动提交第二笔。
 - 完成路线图复核：交易生命周期与刷新恢复主体已收口；Milestone 1 剩余风险集中在 API schema、AI 确定性降级和状态变更请求的 Origin 防护。
+- `/api/risk-copilot` 已建立运行时输入 schema 与成本边界：只接受服务端支持的确定性 finding，限制 JSON 类型、16 KiB 请求体和 10 条 findings，非法输入不会调用 AI。
 
 ## 当前未提交业务文件
 
@@ -46,6 +47,7 @@
 - `ff09717 feat: add pending batch storage`
 - `569afd8 feat: restore pending atomic batches`
 - `8a885b6 feat: restore sequential batch progress`
+- `477a119 fix: validate risk copilot input`
 
 ## 当前步骤的设计结论
 
@@ -69,9 +71,11 @@ Hook 测试锁定三项行为：目标链通过、其他链拒绝、切链动作
 
 路线图复核后，下一阶段继续完成 Milestone 1，而不是提前进入真实转账表单。`/api/risk-copilot` 当前只检查 `findings` 是否为数组，TypeScript 类型在运行时没有保护作用；绕过 UI 的请求可以伪造风险级别和代码、注入任意 detail，或提交过大数组消耗 AI 成本。服务端必须只接受确定性规则明确支持的 finding 结构，AI 只能解释通过校验的证据。
 
+风险 finding 现在使用 `UNLIMITED_APPROVAL` 判别结构，服务端固定其 `high` 级别并严格校验唯一的 `spender` 地址字段，拒绝未知 code、级别降级和额外 prompt/detail。Route Handler 在读取流时累计字节并在 16 KiB 处停止，同时把最多 10 条 finding 作为第二层成本边界；认证检查仍先于请求体处理。
+
 ## 下一步
 
-为 `/api/risk-copilot` 建立显式运行时 schema 和大小边界，并补充 validator 与 Route Handler 测试；只处理输入可信边界，不在同一 Batch 改 AI 降级 UI 或 Origin 防护。
+单独实现 AI 不可用时的确定性风险展示，确保 AI 只影响解释文案而不影响风险结论；暂不加入 Origin 防护。
 
 ## 工作约束
 
