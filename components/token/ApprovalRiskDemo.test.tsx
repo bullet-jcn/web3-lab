@@ -2,6 +2,23 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApprovalRiskDemo } from './ApprovalRiskDemo'
 
+const ACCOUNT = '0x0000000000000000000000000000000000000001'
+const CHAIN_ID = 11155111
+const APPROVAL_HASH = `0x${'01'.repeat(32)}` as `0x${string}`
+const REPLACEMENT_HASH = `0x${'02'.repeat(32)}` as `0x${string}`
+const APPROVAL_STORAGE_KEY = `web3-lab:pending-tx:v1:${CHAIN_ID}:${ACCOUNT}:approval`
+
+function seedPendingApproval(hash = APPROVAL_HASH) {
+  localStorage.setItem(APPROVAL_STORAGE_KEY, JSON.stringify({
+    version: 1,
+    account: ACCOUNT,
+    chainId: CHAIN_ID,
+    kind: 'approval',
+    hash,
+    createdAt: Date.now(),
+  }))
+}
+
 const mocks = vi.hoisted(() => ({
   writeContract: vi.fn(),
   isAwaitingWallet: false,
@@ -10,6 +27,7 @@ const mocks = vi.hoisted(() => ({
   isApproved: false,
   receiptError: null as Error | null,
   chainId: 11155111,
+  receiptHash: undefined as `0x${string}` | undefined,
   replacementCallback: undefined as ((event: {
     reason: 'cancelled' | 'replaced' | 'repriced'
     transaction: { hash: `0x${string}` }
@@ -19,11 +37,11 @@ const mocks = vi.hoisted(() => ({
 vi.mock('wagmi', () => ({
   useWriteContract: () => ({
     mutate: mocks.writeContract,
-    data: '0x01',
     isPending: mocks.isAwaitingWallet,
     error: mocks.writeError,
   }),
-  useWaitForTransactionReceipt: (options: { onReplaced?: typeof mocks.replacementCallback }) => {
+  useWaitForTransactionReceipt: (options: { hash?: `0x${string}`; onReplaced?: typeof mocks.replacementCallback }) => {
+    mocks.receiptHash = options.hash
     mocks.replacementCallback = options.onReplaced
     return {
       isLoading: mocks.isConfirming,
@@ -35,8 +53,8 @@ vi.mock('wagmi', () => ({
 
 vi.mock('@/lib/hooks/useWalletSession', () => ({
   useWalletSession: () => ({
-    session: { address: '0x0000000000000000000000000000000000000001' },
-    walletAddress: '0x0000000000000000000000000000000000000001',
+    session: { address: ACCOUNT },
+    walletAddress: ACCOUNT,
     chainId: mocks.chainId,
     status: 'matched',
     isAuthenticatedWallet: true,
@@ -55,6 +73,7 @@ vi.mock('@/lib/hooks/useWriteChainGuard', () => ({
 
 describe('ApprovalRiskDemo lifecycle', () => {
   beforeEach(() => {
+    localStorage.clear()
     mocks.writeContract.mockReset()
     mocks.isAwaitingWallet = false
     mocks.writeError = null
@@ -63,6 +82,7 @@ describe('ApprovalRiskDemo lifecycle', () => {
     mocks.receiptError = null
     mocks.chainId = 11155111
     mocks.replacementCallback = undefined
+    mocks.receiptHash = undefined
   })
 
   afterEach(() => {
@@ -88,6 +108,50 @@ describe('ApprovalRiskDemo lifecycle', () => {
       json: async () => ({ warning: '无限授权风险' }),
     } as Response)
     await waitFor(() => expect(screen.getByText('无限授权风险')).toBeInTheDocument())
+    expect(localStorage.length).toBe(0)
+    expect(mocks.writeContract).not.toHaveBeenCalled()
+  })
+
+  it('restores a pending approval and resumes its receipt query', async () => {
+    seedPendingApproval()
+    mocks.isConfirming = true
+
+    render(<ApprovalRiskDemo />)
+
+    expect(await screen.findByText('授权交易链上确认中…')).toBeInTheDocument()
+    expect(mocks.receiptHash).toBe(APPROVAL_HASH)
+  })
+
+  it('stores an approval only after the wallet returns a transaction hash', async () => {
+    mocks.writeContract.mockImplementation((_request, options) => options.onSuccess(APPROVAL_HASH))
+    render(<ApprovalRiskDemo />)
+
+    fireEvent.click(screen.getByRole('button', { name: '小额授权（推荐）' }))
+
+    await waitFor(() => expect(localStorage.getItem(APPROVAL_STORAGE_KEY)).toContain(APPROVAL_HASH))
+    expect(mocks.receiptHash).toBe(APPROVAL_HASH)
+  })
+
+  it('clears a restored approval after confirmation', async () => {
+    seedPendingApproval()
+    mocks.isApproved = true
+    render(<ApprovalRiskDemo />)
+
+    expect(await screen.findByText('授权成功！')).toBeInTheDocument()
+    await waitFor(() => expect(localStorage.getItem(APPROVAL_STORAGE_KEY)).toBeNull())
+  })
+
+  it('stores the replacement hash when an approval is repriced', async () => {
+    seedPendingApproval()
+    render(<ApprovalRiskDemo />)
+    await waitFor(() => expect(mocks.receiptHash).toBe(APPROVAL_HASH))
+
+    act(() => {
+      mocks.replacementCallback?.({ reason: 'repriced', transaction: { hash: REPLACEMENT_HASH } })
+    })
+
+    expect(localStorage.getItem(APPROVAL_STORAGE_KEY)).toContain(REPLACEMENT_HASH)
+    expect(screen.getByText(/加速了交易/)).toBeInTheDocument()
   })
 
   it('distinguishes wallet confirmation from chain confirmation', () => {
@@ -114,7 +178,7 @@ describe('ApprovalRiskDemo lifecycle', () => {
     expect(screen.getByText('授权成功！')).toBeInTheDocument()
 
     act(() => {
-      mocks.replacementCallback?.({ reason: 'cancelled', transaction: { hash: '0x02' } })
+      mocks.replacementCallback?.({ reason: 'cancelled', transaction: { hash: REPLACEMENT_HASH } })
     })
 
     expect(screen.queryByText('授权成功！')).not.toBeInTheDocument()
@@ -128,7 +192,7 @@ describe('ApprovalRiskDemo lifecycle', () => {
     mocks.chainId = 1
     rerender(<ApprovalRiskDemo />)
     act(() => {
-      oldContextCallback?.({ reason: 'cancelled', transaction: { hash: '0x02' } })
+      oldContextCallback?.({ reason: 'cancelled', transaction: { hash: REPLACEMENT_HASH } })
     })
 
     expect(screen.queryByText(/取消原交易/)).not.toBeInTheDocument()

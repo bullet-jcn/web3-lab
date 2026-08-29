@@ -10,6 +10,7 @@ import { DEMO_ERC20_ADDRESS, DEMO_SPENDER_ADDRESS, DEMO_TRANSFER_AMOUNT } from '
 import { useWriteChainGuard } from '@/lib/hooks/useWriteChainGuard'
 import { getReplacementMessage, resolveTransactionState } from '@/lib/transactionState'
 import { getErrorMessage } from '@/lib/errors'
+import { clearPendingTransaction, loadPendingTransaction, savePendingTransaction } from '@/lib/pendingTransactionStorage'
 
 interface PendingApproval {
   spender: Address
@@ -28,6 +29,11 @@ interface ApprovalReplacement {
   contextKey: string
 }
 
+interface TrackedApproval {
+  hash: Hash
+  contextKey: string
+}
+
 export function ApprovalRiskDemo() {
   const { session, walletAddress, chainId, status: sessionStatus, isAuthenticatedWallet } = useWalletSession()
   const { writeChain, isCorrectChain, switchToWriteChain, isSwitchingChain, switchChainError } = useWriteChainGuard()
@@ -42,10 +48,11 @@ export function ApprovalRiskDemo() {
 
   const {
     mutate: writeContract,
-    data: approveHash,
     isPending: isAwaitingWallet,
     error: writeError,
   } = useWriteContract()
+  const [trackedApproval, setTrackedApproval] = useState<TrackedApproval | null>(null)
+  const approveHash = trackedApproval?.contextKey === approvalContextKey ? trackedApproval.hash : undefined
   const {
     isLoading: isConfirming,
     isSuccess: isApproved,
@@ -54,6 +61,19 @@ export function ApprovalRiskDemo() {
     hash: approveHash,
     onReplaced: ({ reason, transaction }) => {
       setApprovalReplacement({ reason, hash: transaction.hash, contextKey: approvalContextKey })
+      if (!walletAddress || !chainId) return
+      if (reason === 'repriced') {
+        savePendingTransaction(window.localStorage, {
+          account: walletAddress,
+          chainId,
+          kind: 'approval',
+          hash: transaction.hash,
+        })
+        setTrackedApproval({ hash: transaction.hash, contextKey: approvalContextKey })
+      } else {
+        clearPendingTransaction(window.localStorage, { account: walletAddress, chainId, kind: 'approval' })
+        setTrackedApproval(null)
+      }
     },
   })
 
@@ -76,6 +96,29 @@ export function ApprovalRiskDemo() {
   const approvalReplacementMessage = getReplacementMessage(activeApprovalReplacement?.reason)
   const isApprovalBusy = isRiskChecking || approvalState === 'awaiting-wallet' || approvalState === 'confirming'
 
+  useEffect(() => {
+    if (!walletAddress || !chainId || !isAuthenticatedWallet) return
+    const record = loadPendingTransaction(window.localStorage, {
+      account: walletAddress,
+      chainId,
+      kind: 'approval',
+    })
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
+      setTrackedApproval((current) => current?.contextKey === approvalContextKey
+        ? current
+        : record ? { hash: record.hash, contextKey: approvalContextKey } : null)
+      setApprovalReplacement(null)
+    })
+    return () => { cancelled = true }
+  }, [approvalContextKey, chainId, isAuthenticatedWallet, walletAddress])
+
+  useEffect(() => {
+    if (!isApproved || !walletAddress || !chainId || !approveHash) return
+    clearPendingTransaction(window.localStorage, { account: walletAddress, chainId, kind: 'approval' })
+  }, [approveHash, chainId, isApproved, walletAddress])
+
   function submitApproval(spender: Address, amount: bigint) {
     if (!isAuthenticatedWallet || !isCorrectChain) return
     setApprovalReplacement(null)
@@ -84,6 +127,17 @@ export function ApprovalRiskDemo() {
       abi: erc20Abi,
       functionName: 'approve',
       args: [spender, amount],
+    }, {
+      onSuccess: (hash) => {
+        if (!walletAddress || !chainId) return
+        savePendingTransaction(window.localStorage, {
+          account: walletAddress,
+          chainId,
+          kind: 'approval',
+          hash,
+        })
+        setTrackedApproval({ hash, contextKey: approvalContextKey })
+      },
     })
   }
 
