@@ -10,6 +10,7 @@ import { createNonceCookie, verifySignIn } from './siwe'
 process.env.AUTH_COOKIE_SECRET = 'test-secret'
 
 const DOMAIN = 'localhost:3000'
+const ORIGIN = `http://${DOMAIN}`
 
 // Points at a port nothing listens on, with retries disabled, so any real
 // network call fails immediately. verifySiweMessage still validates a plain
@@ -28,7 +29,7 @@ async function buildSignedMessage(nonce: string) {
     chainId: sepolia.id,
     domain: DOMAIN,
     nonce,
-    uri: `http://${DOMAIN}`,
+    uri: ORIGIN,
     version: '1',
   })
   const signature = await account.signMessage({ message })
@@ -40,7 +41,7 @@ describe('verifySignIn', () => {
     const { nonce, cookie } = createNonceCookie()
     const { account, message, signature } = await buildSignedMessage(nonce)
 
-    const result = await verifySignIn(message, signature, cookie, DOMAIN, () => offlineClient)
+    const result = await verifySignIn(message, signature, cookie, ORIGIN, () => offlineClient)
 
     expect(result).toEqual({ ok: true, address: account.address, chainId: sepolia.id })
   })
@@ -49,7 +50,7 @@ describe('verifySignIn', () => {
     const { nonce } = createNonceCookie()
     const { message, signature } = await buildSignedMessage(nonce)
 
-    const result = await verifySignIn(message, signature, undefined, DOMAIN, () => offlineClient)
+    const result = await verifySignIn(message, signature, undefined, ORIGIN, () => offlineClient)
 
     expect(result).toEqual({ ok: false, reason: 'nonce 缺失或已过期' })
   })
@@ -58,18 +59,45 @@ describe('verifySignIn', () => {
     const { cookie } = createNonceCookie()
     const { message, signature } = await buildSignedMessage('differentnonce1')
 
-    const result = await verifySignIn(message, signature, cookie, DOMAIN, () => offlineClient)
+    const result = await verifySignIn(message, signature, cookie, ORIGIN, () => offlineClient)
 
     expect(result).toEqual({ ok: false, reason: 'nonce 不匹配' })
   })
 
   it('rejects when the domain does not match', async () => {
     const { nonce, cookie } = createNonceCookie()
-    const { message, signature } = await buildSignedMessage(nonce)
+    const account = privateKeyToAccount(generatePrivateKey())
+    const message = createSiweMessage({
+      address: account.address,
+      chainId: sepolia.id,
+      domain: 'evil.example',
+      nonce,
+      uri: ORIGIN,
+      version: '1',
+    })
+    const signature = await account.signMessage({ message })
 
-    const result = await verifySignIn(message, signature, cookie, 'evil.example', () => offlineClient)
+    const result = await verifySignIn(message, signature, cookie, ORIGIN, () => offlineClient)
 
     expect(result).toEqual({ ok: false, reason: 'domain 不匹配' })
+  })
+
+  it('rejects a signed message whose URI is not the application origin', async () => {
+    const { nonce, cookie } = createNonceCookie()
+    const account = privateKeyToAccount(generatePrivateKey())
+    const message = createSiweMessage({
+      address: account.address,
+      chainId: sepolia.id,
+      domain: DOMAIN,
+      nonce,
+      uri: 'https://evil.example',
+      version: '1',
+    })
+    const signature = await account.signMessage({ message })
+
+    const result = await verifySignIn(message, signature, cookie, ORIGIN, () => offlineClient)
+
+    expect(result).toEqual({ ok: false, reason: 'uri 不匹配' })
   })
 
   it('rejects a tampered signature', async () => {
@@ -78,7 +106,7 @@ describe('verifySignIn', () => {
     const flippedChar = signature[2] === 'a' ? 'b' : 'a'
     const tampered = (signature.slice(0, 2) + flippedChar + signature.slice(3)) as `0x${string}`
 
-    const result = await verifySignIn(message, tampered, cookie, DOMAIN, () => offlineClient)
+    const result = await verifySignIn(message, tampered, cookie, ORIGIN, () => offlineClient)
 
     expect(result).toEqual({ ok: false, reason: '签名验证失败' })
   })
@@ -91,12 +119,12 @@ describe('verifySignIn', () => {
       chainId: 999999,
       domain: DOMAIN,
       nonce,
-      uri: `http://${DOMAIN}`,
+      uri: ORIGIN,
       version: '1',
     })
     const signature = await account.signMessage({ message })
 
-    const result = await verifySignIn(message, signature, cookie, DOMAIN, () => undefined)
+    const result = await verifySignIn(message, signature, cookie, ORIGIN, () => undefined)
 
     expect(result).toEqual({ ok: false, reason: '不支持的链' })
   })

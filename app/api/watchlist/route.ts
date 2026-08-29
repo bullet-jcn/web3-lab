@@ -1,6 +1,7 @@
-import { isAddress } from 'viem'
+import { isAddress, type Address } from 'viem'
 import { getSession } from '@/lib/auth/session'
 import { enforceSameOrigin } from '@/lib/auth/origin'
+import { readJsonBody } from '@/lib/http/json'
 import {
   addToWatchlist,
   getWatchlist,
@@ -19,6 +20,20 @@ function watchlistCookieOptions() {
     maxAge: WATCHLIST_TTL_SECONDS,
     path: '/api',
   }
+}
+
+async function readAddress(request: Request): Promise<{ address: Address } | Response> {
+  const parsedBody = await readJsonBody(request, 1024)
+  if (!parsedBody.ok) return parsedBody.response
+  const body = parsedBody.value
+  if (!body || typeof body !== 'object') {
+    return NextResponse.json({ error: 'address 缺失或格式不对' }, { status: 400 })
+  }
+  const { address } = body as Record<string, unknown>
+  if (typeof address !== 'string' || !isAddress(address)) {
+    return NextResponse.json({ error: 'address 缺失或格式不对' }, { status: 400 })
+  }
+  return { address: address as Address }
 }
 
 export async function GET(): Promise<Response> {
@@ -42,10 +57,9 @@ export async function POST(request: Request): Promise<Response> {
     return NextResponse.json({ error: '未登录' }, { status: 401 })
   }
 
-  const { address } = await request.json()
-  if (typeof address !== 'string' || !isAddress(address)) {
-    return NextResponse.json({ error: 'address 缺失或格式不对' }, { status: 400 })
-  }
+  const body = await readAddress(request)
+  if (body instanceof Response) return body
+  const { address } = body
 
   const cookieStore = await cookies()
   const cookieValue = cookieStore.get(WATCHLIST_COOKIE_NAME)?.value
@@ -68,10 +82,9 @@ export async function DELETE(request: Request): Promise<Response> {
     return NextResponse.json({ error: '未登录' }, { status: 401 })
   }
 
-  const { address } = await request.json()
-  if (typeof address !== 'string' || !isAddress(address)) {
-    return NextResponse.json({ error: 'address 缺失或格式不对' }, { status: 400 })
-  }
+  const body = await readAddress(request)
+  if (body instanceof Response) return body
+  const { address } = body
 
   const cookieStore = await cookies()
   const cookieValue = cookieStore.get(WATCHLIST_COOKIE_NAME)?.value

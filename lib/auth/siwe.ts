@@ -26,7 +26,7 @@ export async function verifySignIn(
   message: string,
   signature: Hex,
   nonceCookieValue: string | undefined,
-  requestHost: string,
+  expectedOrigin: string,
   resolveClient: (chainId: number) => PublicClient | undefined = clientForChain,
 ): Promise<VerifySignInResult> {
   const storedNonce = verify<{ nonce: string }>(NONCE_COOKIE_NAME, nonceCookieValue, getAuthSecret())
@@ -34,16 +34,25 @@ export async function verifySignIn(
     return { ok: false, reason: 'nonce 缺失或已过期' }
   }
 
-  const { nonce, domain, address, chainId } = parseSiweMessage(message)
-  if (!nonce || !domain || !address || !chainId) {
+  const { nonce, domain, address, chainId, uri, version, scheme } = parseSiweMessage(message)
+  if (!nonce || !domain || !address || !chainId || !uri || !version) {
     return { ok: false, reason: '消息格式不完整' }
+  }
+
+  const originUrl = new URL(expectedOrigin)
+  if (version !== '1') {
+    return { ok: false, reason: 'SIWE version 不受支持' }
+  }
+
+  if (uri !== originUrl.origin || (scheme && scheme !== originUrl.protocol.slice(0, -1))) {
+    return { ok: false, reason: 'uri 不匹配' }
   }
 
   if (nonce !== storedNonce.nonce) {
     return { ok: false, reason: 'nonce 不匹配' }
   }
 
-  if (domain !== requestHost) {
+  if (domain !== originUrl.host) {
     return { ok: false, reason: 'domain 不匹配' }
   }
 
@@ -55,7 +64,7 @@ export async function verifySignIn(
   const isValid = await verifySiweMessage(client, {
     message,
     signature,
-    domain: requestHost,
+    domain: originUrl.host,
     nonce: storedNonce.nonce,
   })
 
