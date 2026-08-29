@@ -6,6 +6,9 @@ const ACCOUNT = '0x0000000000000000000000000000000000000001'
 const CHAIN_ID = 11155111
 const ATOMIC_ID = 'wallet-bundle:42'
 const ATOMIC_STORAGE_KEY = `web3-lab:pending-batch:v1:${CHAIN_ID}:${ACCOUNT}:atomic`
+const FIRST_HASH = `0x${'01'.repeat(32)}` as `0x${string}`
+const SECOND_HASH = `0x${'02'.repeat(32)}` as `0x${string}`
+const SEQUENTIAL_STORAGE_KEY = `web3-lab:pending-batch:v1:${CHAIN_ID}:${ACCOUNT}:sequential`
 
 const mocks = vi.hoisted(() => ({
   writeContractAsync: vi.fn(),
@@ -60,6 +63,21 @@ function seedPendingAtomicBatch() {
   }))
 }
 
+function seedPendingSequentialBatch(
+  stage: 'first-pending' | 'first-confirmed' | 'second-pending',
+) {
+  localStorage.setItem(SEQUENTIAL_STORAGE_KEY, JSON.stringify({
+    version: 1,
+    account: ACCOUNT,
+    chainId: CHAIN_ID,
+    mode: 'sequential',
+    stage,
+    firstHash: FIRST_HASH,
+    ...(stage === 'second-pending' ? { secondHash: SECOND_HASH } : {}),
+    createdAt: Date.now(),
+  }))
+}
+
 describe('BatchedTransferDemo', () => {
   beforeEach(() => {
     localStorage.clear()
@@ -75,7 +93,7 @@ describe('BatchedTransferDemo', () => {
   })
 
   it('does not request the second transfer when the first receipt reverts', async () => {
-    mocks.writeContractAsync.mockResolvedValueOnce('0x01')
+    mocks.writeContractAsync.mockResolvedValueOnce(FIRST_HASH)
     mocks.waitForTransactionReceipt.mockResolvedValueOnce({ status: 'reverted' })
     render(<BatchedTransferDemo />)
 
@@ -84,11 +102,12 @@ describe('BatchedTransferDemo', () => {
     await waitFor(() => expect(screen.getByText(/first transfer/)).toBeInTheDocument())
     expect(mocks.writeContractAsync).toHaveBeenCalledTimes(1)
     expect(screen.queryByText(/第一笔已经链上确认/)).not.toBeInTheDocument()
+    expect(localStorage.getItem(SEQUENTIAL_STORAGE_KEY)).toBeNull()
   })
 
   it('reports partial success when the second wallet request fails', async () => {
     mocks.writeContractAsync
-      .mockResolvedValueOnce('0x01')
+      .mockResolvedValueOnce(FIRST_HASH)
       .mockRejectedValueOnce(new Error('User rejected the request'))
     mocks.waitForTransactionReceipt.mockResolvedValueOnce({ status: 'success' })
     render(<BatchedTransferDemo />)
@@ -99,6 +118,67 @@ describe('BatchedTransferDemo', () => {
     expect(mocks.writeContractAsync).toHaveBeenCalledTimes(2)
     expect(mocks.waitForTransactionReceipt).toHaveBeenCalledTimes(1)
     expect(screen.getByText(/User rejected/)).toBeInTheDocument()
+    expect(localStorage.getItem(SEQUENTIAL_STORAGE_KEY)).toContain('first-confirmed')
+    expect(screen.getByRole('button', { name: '批次已中断，请先核对记录' })).toBeDisabled()
+  })
+
+  it('clears a reverted second receipt but keeps the whole-batch action locked', async () => {
+    mocks.writeContractAsync
+      .mockResolvedValueOnce(FIRST_HASH)
+      .mockResolvedValueOnce(SECOND_HASH)
+    mocks.waitForTransactionReceipt
+      .mockResolvedValueOnce({ status: 'success' })
+      .mockResolvedValueOnce({ status: 'reverted' })
+    render(<BatchedTransferDemo />)
+
+    fireEvent.click(screen.getByRole('button', { name: '顺序转账(非原子)' }))
+
+    expect(await screen.findByText(/第二笔失败或被取消/)).toBeInTheDocument()
+    expect(localStorage.getItem(SEQUENTIAL_STORAGE_KEY)).toBeNull()
+    expect(screen.getByRole('button', { name: '批次部分完成，请先核对记录' })).toBeDisabled()
+  })
+
+  it('restores the first receipt, then stops before the second wallet request', async () => {
+    seedPendingSequentialBatch('first-pending')
+    mocks.waitForTransactionReceipt.mockResolvedValueOnce({ status: 'success' })
+    render(<BatchedTransferDemo />)
+
+    expect(await screen.findByText(/第二笔尚未提交/)).toBeInTheDocument()
+    expect(mocks.waitForTransactionReceipt).toHaveBeenCalledWith({ hash: FIRST_HASH })
+    expect(mocks.writeContractAsync).not.toHaveBeenCalled()
+    expect(localStorage.getItem(SEQUENTIAL_STORAGE_KEY)).toContain('first-confirmed')
+    expect(screen.getByRole('button', { name: '批次已中断，请先核对记录' })).toBeDisabled()
+  })
+
+  it('restores the between-wallet-requests stage without querying or sending', async () => {
+    seedPendingSequentialBatch('first-confirmed')
+    render(<BatchedTransferDemo />)
+
+    expect(await screen.findByText(/第二笔尚未提交/)).toBeInTheDocument()
+    expect(mocks.waitForTransactionReceipt).not.toHaveBeenCalled()
+    expect(mocks.writeContractAsync).not.toHaveBeenCalled()
+  })
+
+  it('restores the second receipt and clears storage after success', async () => {
+    seedPendingSequentialBatch('second-pending')
+    mocks.waitForTransactionReceipt.mockResolvedValueOnce({ status: 'success' })
+    render(<BatchedTransferDemo />)
+
+    expect(await screen.findByText('两笔转账都已完成')).toBeInTheDocument()
+    expect(mocks.waitForTransactionReceipt).toHaveBeenCalledWith({ hash: SECOND_HASH })
+    expect(mocks.writeContractAsync).not.toHaveBeenCalled()
+    expect(localStorage.getItem(SEQUENTIAL_STORAGE_KEY)).toBeNull()
+  })
+
+  it('retains a sequential record and locks resubmission after a query error', async () => {
+    seedPendingSequentialBatch('first-pending')
+    mocks.waitForTransactionReceipt.mockRejectedValueOnce(new Error('RPC unavailable'))
+    render(<BatchedTransferDemo />)
+
+    expect(await screen.findByText('RPC unavailable')).toBeInTheDocument()
+    expect(localStorage.getItem(SEQUENTIAL_STORAGE_KEY)).toContain('first-pending')
+    expect(screen.getByRole('button', { name: '批次状态暂时无法确认' })).toBeDisabled()
+    expect(mocks.writeContractAsync).not.toHaveBeenCalled()
   })
 
   it('stores a wallet-returned atomic id and starts querying it', async () => {

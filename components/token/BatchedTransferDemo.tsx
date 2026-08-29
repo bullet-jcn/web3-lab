@@ -8,7 +8,7 @@ import { resolveAtomicBatchState, resolveAtomicSupport } from '@/lib/eip5792'
 import { Button } from '@/components/ui/button'
 import { useWriteChainGuard } from '@/lib/hooks/useWriteChainGuard'
 import { getErrorMessage } from '@/lib/errors'
-import { clearPendingBatch, loadPendingBatch, savePendingBatch } from '@/lib/pendingBatchStorage'
+import { clearPendingBatch, loadPendingBatch, savePendingBatch, type PendingSequentialBatchRecord } from '@/lib/pendingBatchStorage'
 
 type SequentialStep =
   | 'idle'
@@ -18,13 +18,22 @@ type SequentialStep =
   | 'confirming-second'
   | 'done'
   | 'partial-success'
+  | 'recovery-error'
   | 'error'
+
+interface TrackedSequentialBatch {
+  record: PendingSequentialBatchRecord
+  contextKey: string
+  shouldRecover: boolean
+}
 
 export function BatchedTransferDemo() {
   const { address } = useConnection()
   const { chainId, writeChain, isCorrectChain, switchToWriteChain, isSwitchingChain, switchChainError } = useWriteChainGuard()
   const publicClient = usePublicClient({ chainId: writeChain.id })
+  const waitForTransactionReceipt = publicClient?.waitForTransactionReceipt
   const atomicContextKey = address && chainId ? `${chainId}:${address.toLowerCase()}:atomic` : null
+  const sequentialContextKey = address && chainId ? `${chainId}:${address.toLowerCase()}:sequential` : null
 
   const { data: capabilities, isLoading: isCapabilitiesLoading } = useCapabilities({ chainId: writeChain.id })
   const support = resolveAtomicSupport(capabilities?.atomic?.status)
@@ -70,6 +79,85 @@ export function BatchedTransferDemo() {
   const { mutateAsync: writeContractAsync } = useWriteContract()
   const [sequentialStep, setSequentialStep] = useState<SequentialStep>('idle')
   const [sequentialError, setSequentialError] = useState<string | null>(null)
+  const [trackedSequentialBatch, setTrackedSequentialBatch] = useState<TrackedSequentialBatch | null>(null)
+  const activeSequentialBatch = trackedSequentialBatch?.contextKey === sequentialContextKey
+    ? trackedSequentialBatch
+    : null
+
+  useEffect(() => {
+    if (!address || !chainId || !sequentialContextKey) return
+    const record = loadPendingBatch(window.localStorage, { account: address, chainId, mode: 'sequential' })
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
+      setTrackedSequentialBatch((current) => current?.contextKey === sequentialContextKey
+        ? current
+        : record?.mode === 'sequential'
+          ? { record, contextKey: sequentialContextKey, shouldRecover: true }
+          : null)
+      setSequentialError(null)
+    })
+    return () => { cancelled = true }
+  }, [address, chainId, sequentialContextKey])
+
+  useEffect(() => {
+    if (!activeSequentialBatch?.shouldRecover || !address || !chainId || !waitForTransactionReceipt) return
+    const batch = activeSequentialBatch
+    const recoveryAddress = address
+    const recoveryChainId = chainId
+    const waitForRecoveryReceipt = waitForTransactionReceipt
+    let cancelled = false
+
+    async function recoverSequentialBatch() {
+      const { record } = batch
+      setSequentialError(null)
+
+      if (record.stage === 'first-confirmed') {
+        setSequentialStep('partial-success')
+        return
+      }
+
+      try {
+        const isFirstPending = record.stage === 'first-pending'
+        setSequentialStep(isFirstPending ? 'confirming-first' : 'confirming-second')
+        const hash = record.stage === 'first-pending' ? record.firstHash : record.secondHash!
+        const receipt = await waitForRecoveryReceipt({ hash })
+        if (cancelled) return
+
+        if (receipt.status !== 'success') {
+          clearPendingBatch(window.localStorage, { account: recoveryAddress, chainId: recoveryChainId, mode: 'sequential' })
+          setTrackedSequentialBatch(null)
+          setSequentialStep(isFirstPending ? 'error' : 'partial-success')
+          setSequentialError(`execution reverted: ${isFirstPending ? 'first' : 'second'} transfer`)
+          return
+        }
+
+        if (isFirstPending) {
+          const nextRecord = savePendingBatch(window.localStorage, {
+            account: recoveryAddress,
+            chainId: recoveryChainId,
+            mode: 'sequential',
+            stage: 'first-confirmed',
+            firstHash: record.firstHash,
+          }) as PendingSequentialBatchRecord
+          setTrackedSequentialBatch({ record: nextRecord, contextKey: batch.contextKey, shouldRecover: true })
+          setSequentialStep('partial-success')
+          return
+        }
+
+        clearPendingBatch(window.localStorage, { account: recoveryAddress, chainId: recoveryChainId, mode: 'sequential' })
+        setTrackedSequentialBatch(null)
+        setSequentialStep('done')
+      } catch (err) {
+        if (cancelled) return
+        setSequentialStep('recovery-error')
+        setSequentialError(err instanceof Error ? err.message : '批次状态查询失败')
+      }
+    }
+
+    void recoverSequentialBatch()
+    return () => { cancelled = true }
+  }, [activeSequentialBatch, address, chainId, waitForTransactionReceipt])
 
   function handleAtomicTransfer() {
     if (!address || !isCorrectChain) return
@@ -89,7 +177,7 @@ export function BatchedTransferDemo() {
   }
 
   async function handleSequentialTransfer() {
-    if (!address || !isCorrectChain || !publicClient) return
+    if (!address || !chainId || !sequentialContextKey || !isCorrectChain || !publicClient || activeSequentialBatch) return
     setSequentialError(null)
     setSequentialStep('awaiting-first-wallet')
     let firstTransferConfirmed = false
@@ -101,10 +189,30 @@ export function BatchedTransferDemo() {
         functionName: 'transfer',
         args: [DEMO_RECIPIENT_A, DEMO_TRANSFER_AMOUNT],
       })
+      const firstPending = savePendingBatch(window.localStorage, {
+        account: address,
+        chainId,
+        mode: 'sequential',
+        stage: 'first-pending',
+        firstHash,
+      }) as PendingSequentialBatchRecord
+      setTrackedSequentialBatch({ record: firstPending, contextKey: sequentialContextKey, shouldRecover: false })
       setSequentialStep('confirming-first')
       const firstReceipt = await publicClient.waitForTransactionReceipt({ hash: firstHash })
-      if (firstReceipt.status !== 'success') throw new Error('execution reverted: first transfer')
+      if (firstReceipt.status !== 'success') {
+        clearPendingBatch(window.localStorage, { account: address, chainId, mode: 'sequential' })
+        setTrackedSequentialBatch(null)
+        throw new Error('execution reverted: first transfer')
+      }
       firstTransferConfirmed = true
+      const firstConfirmed = savePendingBatch(window.localStorage, {
+        account: address,
+        chainId,
+        mode: 'sequential',
+        stage: 'first-confirmed',
+        firstHash,
+      }) as PendingSequentialBatchRecord
+      setTrackedSequentialBatch({ record: firstConfirmed, contextKey: sequentialContextKey, shouldRecover: false })
 
       setSequentialStep('awaiting-second-wallet')
       const secondHash = await writeContractAsync({
@@ -113,12 +221,29 @@ export function BatchedTransferDemo() {
         functionName: 'transfer',
         args: [DEMO_RECIPIENT_B, DEMO_TRANSFER_AMOUNT],
       })
+      const secondPending = savePendingBatch(window.localStorage, {
+        account: address,
+        chainId,
+        mode: 'sequential',
+        stage: 'second-pending',
+        firstHash,
+        secondHash,
+      }) as PendingSequentialBatchRecord
+      setTrackedSequentialBatch({ record: secondPending, contextKey: sequentialContextKey, shouldRecover: false })
       setSequentialStep('confirming-second')
       const secondReceipt = await publicClient.waitForTransactionReceipt({ hash: secondHash })
+      clearPendingBatch(window.localStorage, { account: address, chainId, mode: 'sequential' })
+      setTrackedSequentialBatch(null)
       if (secondReceipt.status !== 'success') throw new Error('execution reverted: second transfer')
       setSequentialStep('done')
     } catch (err) {
-      setSequentialStep(firstTransferConfirmed ? 'partial-success' : 'error')
+      const pendingRecord = loadPendingBatch(window.localStorage, { account: address, chainId, mode: 'sequential' })
+      if (pendingRecord?.mode === 'sequential') {
+        setTrackedSequentialBatch({ record: pendingRecord, contextKey: sequentialContextKey, shouldRecover: false })
+      }
+      const hasUnresolvedReceipt = pendingRecord?.mode === 'sequential'
+        && (pendingRecord.stage === 'first-pending' || pendingRecord.stage === 'second-pending')
+      setSequentialStep(hasUnresolvedReceipt ? 'recovery-error' : firstTransferConfirmed ? 'partial-success' : 'error')
       setSequentialError(err instanceof Error ? err.message : '转账失败')
     }
   }
@@ -155,8 +280,11 @@ export function BatchedTransferDemo() {
     'awaiting-second-wallet',
     'confirming-second',
   ].includes(sequentialStep)
+  const isSequentialLocked = isSendingSequential
+    || !!activeSequentialBatch
+    || sequentialStep === 'partial-success'
 
-  if (support !== 'sequential-fallback' || !!atomicBatchId) {
+  if (!!atomicBatchId || (!activeSequentialBatch && support !== 'sequential-fallback')) {
     const isAtomicBatchBusy = atomicBatchState === 'awaiting-wallet'
       || atomicBatchState === 'confirming'
       || isAtomicBatchUnresolved
@@ -187,17 +315,22 @@ export function BatchedTransferDemo() {
       <p className="rounded-md bg-orange-50 p-2 text-sm text-orange-600 dark:bg-orange-950 dark:text-orange-400">
         当前钱包不支持原子批量转账,这两笔转账会分开发送——如果第二笔失败,第一笔不会被撤销。
       </p>
-      <Button className="w-full" onClick={handleSequentialTransfer} disabled={!publicClient || isSendingSequential}>
+      <Button className="w-full" onClick={handleSequentialTransfer} disabled={!publicClient || isSequentialLocked}>
         {sequentialStep === 'awaiting-first-wallet' && '等待确认第一笔…'}
         {sequentialStep === 'confirming-first' && '链上确认第一笔…'}
         {sequentialStep === 'awaiting-second-wallet' && '第一笔已确认，等待确认第二笔…'}
         {sequentialStep === 'confirming-second' && '第一笔已确认，链上确认第二笔…'}
-        {!isSendingSequential && '顺序转账(非原子)'}
+        {sequentialStep === 'partial-success' && activeSequentialBatch && '批次已中断，请先核对记录'}
+        {sequentialStep === 'partial-success' && !activeSequentialBatch && '批次部分完成，请先核对记录'}
+        {sequentialStep === 'recovery-error' && '批次状态暂时无法确认'}
+        {!isSequentialLocked && '顺序转账(非原子)'}
       </Button>
       {sequentialStep === 'done' && <p className="text-sm text-emerald-300">两笔转账都已完成</p>}
       {sequentialStep === 'partial-success' && (
         <p className="text-sm text-orange-600 dark:text-orange-400">
-          第一笔已经链上确认，第二笔失败或被取消。第一笔不会自动撤销，请不要直接重复整个批次。
+          {activeSequentialBatch?.record.stage === 'first-confirmed'
+            ? '第一笔已经链上确认，第二笔尚未提交或钱包请求已取消。刷新后不会自动继续，请不要重复整个批次。'
+            : '第一笔已经链上确认，第二笔失败或被取消。第一笔不会自动撤销，请不要直接重复整个批次。'}
         </p>
       )}
       {sequentialError && <p className="text-sm text-destructive">{sequentialError}</p>}
