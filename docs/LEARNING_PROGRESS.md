@@ -29,6 +29,7 @@
 - 顺序降级已接入阶段化存储与刷新恢复：分别恢复第一笔或第二笔回执；两次钱包请求之间刷新时只展示中断状态，绝不自动提交第二笔。
 - 完成路线图复核：交易生命周期与刷新恢复主体已收口；Milestone 1 剩余风险集中在 API schema、AI 确定性降级和状态变更请求的 Origin 防护。
 - `/api/risk-copilot` 已建立运行时输入 schema 与成本边界：只接受服务端支持的确定性 finding，限制 JSON 类型、16 KiB 请求体和 10 条 findings，非法输入不会调用 AI。
+- 授权风险提示已支持 AI 确定性降级：Gemini 失败、空响应或客户端断网时仍展示规则证据与 spender，AI 只增强解释，不决定风险结论。
 
 ## 当前未提交业务文件
 
@@ -48,6 +49,7 @@
 - `569afd8 feat: restore pending atomic batches`
 - `8a885b6 feat: restore sequential batch progress`
 - `477a119 fix: validate risk copilot input`
+- `9ef7eca feat: preserve deterministic risk warnings`
 
 ## 当前步骤的设计结论
 
@@ -73,9 +75,11 @@ Hook 测试锁定三项行为：目标链通过、其他链拒绝、切链动作
 
 风险 finding 现在使用 `UNLIMITED_APPROVAL` 判别结构，服务端固定其 `high` 级别并严格校验唯一的 `spender` 地址字段，拒绝未知 code、级别降级和额外 prompt/detail。Route Handler 在读取流时累计字节并在 16 KiB 处停止，同时把最多 10 条 finding 作为第二层成本边界；认证检查仍先于请求体处理。
 
+确定性 formatter 与 `assessRisk` 共享同一个判别 finding：服务端 AI 调用失败或无文本时返回 `degraded: true` 和规则文案，客户端连 Route 都无法访问时调用同一 formatter。只有这类解释服务降级会保留显式“继续授权”入口；明确的非 2xx API 拒绝仍阻止操作，即使错误响应体损坏也不会误走降级路径。
+
 ## 下一步
 
-单独实现 AI 不可用时的确定性风险展示，确保 AI 只影响解释文案而不影响风险结论；暂不加入 Origin 防护。
+单独设计并实现状态变更 Route Handler 的同源 Origin 防护，先盘点需要保护的端点与可信代理边界，再编写共享校验和测试。
 
 ## 工作约束
 
