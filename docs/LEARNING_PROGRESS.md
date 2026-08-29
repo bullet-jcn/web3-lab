@@ -31,10 +31,11 @@
 - `/api/risk-copilot` 已建立运行时输入 schema 与成本边界：只接受服务端支持的确定性 finding，限制 JSON 类型、16 KiB 请求体和 10 条 findings，非法输入不会调用 AI。
 - 授权风险提示已支持 AI 确定性降级：Gemini 失败、空响应或客户端断网时仍展示规则证据与 spender，AI 只增强解释，不决定风险结论。
 - 状态变更 API 已加入共享同源 Origin 防护：登录验证、登出、watchlist 写入和风险 AI 端点默认拒绝缺失或跨站来源，代理头仅在显式信任时使用。
+- Milestone 1 收尾审计已补齐 SIWE `uri`/version/scheme 绑定、登录与 watchlist JSON 类型及字节边界，以及全站 CSP、frame、MIME、referrer 和 permissions 安全响应头；现有功能满足 Milestone 1 的代码退出条件。
 
 ## 当前未提交业务文件
 
-无。Origin 防护业务代码与测试已提交，当前仅更新本恢复文件。
+无。Milestone 1 收尾代码与测试已提交，当前仅更新本恢复文件。
 
 `docs/PRODUCT_SPEC.md` 与 `docs/PRODUCTION_ROADMAP.md` 是此前已有的未跟踪产品文档，不属于当前业务步骤。
 
@@ -54,6 +55,7 @@
 - `477a119 fix: validate risk copilot input`
 - `9ef7eca feat: preserve deterministic risk warnings`
 - `4408e92 feat: enforce same-origin API mutations`
+- `e7d8a2f fix: close milestone one security gaps`
 
 ## 当前步骤的设计结论
 
@@ -83,9 +85,17 @@ Hook 测试锁定三项行为：目标链通过、其他链拒绝、切链动作
 
 Origin 防护优先使用固定 `APP_ORIGIN`；未配置时比较请求 URL，只有 `TRUST_PROXY_HEADERS=true` 才读取 `X-Forwarded-Host/Proto`。这避免直接暴露的应用被伪造代理头绕过。保护范围是 `auth/verify`、`auth/logout`、watchlist `POST/DELETE` 和 `risk-copilot POST`；只读 session/watchlist GET 不校验，nonce GET 只轮换短期登录 nonce，后续验证仍受 nonce、domain 与 Origin 三层约束。
 
+Milestone 1 的最终审计把“浏览器请求来源”和“钱包实际签署的登录声明”统一绑定到同一个可信应用 Origin。行业中的 SIWE relying party 不应只验证签名：还要校验 nonce、domain、URI、version、时间与支持链；本项目由 viem 验证签名/时间语义，应用层显式验证其余产品边界。`APP_ORIGIN` 是生产首选，可信代理配置只能显式开启。
+
+轻量 JSON 写接口统一先检查 `application/json`，再按 UTF-8 字节读取并限流，最后才做字段 schema；这避免 TypeScript 类型被误当成运行时保护，也避免损坏 JSON 变成 500。登录上限 8 KiB，watchlist 上限 1 KiB；高成本 Risk Copilot 继续使用自己的 16 KiB 流式边界和 finding 数量限制。
+
+安全响应头通过当前 Next.js 的 `headers()` 配置覆盖全站：CSP 限制脚本、样式、连接、frame、object 和表单来源，同时设置 `nosniff`、DENY frame、referrer 与敏感浏览器能力策略。当前静态 CSP 为兼容 Next.js hydration 保留 `unsafe-inline`；生产规模需要改成每请求 nonce 的动态 CSP，这是本实现有意保留的扩展点，而不是宣称已经达到最严格 CSP。
+
+Milestone 1 退出证据：账户不一致时授权 UI 被阻断；写路径绑定 Sepolia；单笔、授权、原子批次和顺序降级均以回执终态为准并处理替换/取消/部分成功；待确认状态可按账户、链和交易类型恢复；API schema、AI 确定性降级、Origin 与安全头均有测试。最终验证为 21 个测试文件、134 项测试通过，TypeScript、ESLint、Diff 检查和 Next.js 生产构建通过。
+
 ## 下一步
 
-重新审计 Milestone 1 的 API body 与 SIWE 边界，确认剩余风险并判断是否可以进入真实转账产品 Batch。
+Milestone 1 已关闭。下一步先进行截至目前的完整学习复盘，覆盖钱包身份、链边界、交易状态机、替换/批量语义、持久化、API/AI/SIWE/Origin 安全与测试证据；复盘完成前不进入 Milestone 2 / Batch C。
 
 ## 工作约束
 
