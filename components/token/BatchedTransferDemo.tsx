@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { erc20Abi } from 'viem'
 import { useCapabilities, useConnection, usePublicClient, useSendCalls, useWaitForCallsStatus, useWriteContract } from 'wagmi'
 import { DEMO_ERC20_ADDRESS, DEMO_RECIPIENT_A, DEMO_RECIPIENT_B, DEMO_TRANSFER_AMOUNT } from '@/lib/constants'
@@ -8,6 +8,7 @@ import { resolveAtomicBatchState, resolveAtomicSupport } from '@/lib/eip5792'
 import { Button } from '@/components/ui/button'
 import { useWriteChainGuard } from '@/lib/hooks/useWriteChainGuard'
 import { getErrorMessage } from '@/lib/errors'
+import { clearPendingBatch, loadPendingBatch, savePendingBatch } from '@/lib/pendingBatchStorage'
 
 type SequentialStep =
   | 'idle'
@@ -21,23 +22,50 @@ type SequentialStep =
 
 export function BatchedTransferDemo() {
   const { address } = useConnection()
-  const { writeChain, isCorrectChain, switchToWriteChain, isSwitchingChain, switchChainError } = useWriteChainGuard()
+  const { chainId, writeChain, isCorrectChain, switchToWriteChain, isSwitchingChain, switchChainError } = useWriteChainGuard()
   const publicClient = usePublicClient({ chainId: writeChain.id })
+  const atomicContextKey = address && chainId ? `${chainId}:${address.toLowerCase()}:atomic` : null
 
   const { data: capabilities, isLoading: isCapabilitiesLoading } = useCapabilities({ chainId: writeChain.id })
   const support = resolveAtomicSupport(capabilities?.atomic?.status)
 
-  const { mutate: sendCalls, data: sendCallsResult, isPending: isSendingBatch, error: sendCallsError } = useSendCalls()
-  const { data: callsStatus, error: callsStatusError } = useWaitForCallsStatus({ id: sendCallsResult?.id })
+  const { mutate: sendCalls, isPending: isSendingBatch, error: sendCallsError } = useSendCalls()
+  const [trackedAtomicBatch, setTrackedAtomicBatch] = useState<{ id: string; contextKey: string } | null>(null)
+  const atomicBatchId = trackedAtomicBatch?.contextKey === atomicContextKey ? trackedAtomicBatch.id : undefined
+  const { data: callsStatus, error: callsStatusError } = useWaitForCallsStatus({ id: atomicBatchId })
   const atomicBatchError = sendCallsError ?? callsStatusError
   const atomicBatchState = resolveAtomicBatchState({
     isAwaitingWallet: isSendingBatch,
-    bundleId: sendCallsResult?.id,
+    bundleId: atomicBatchId,
     status: callsStatus?.status,
     receiptStatuses: callsStatus?.receipts?.map((receipt) => receipt.status) ?? [],
     error: atomicBatchError,
   })
   const atomicBatchErrorMessage = getErrorMessage(atomicBatchError)
+  const hasRevertedAtomicReceipt = callsStatus?.receipts?.some((receipt) => receipt.status === 'reverted') ?? false
+  const isAtomicBatchUnresolved = !!atomicBatchId
+    && callsStatus?.status !== 'success'
+    && callsStatus?.status !== 'failure'
+    && !hasRevertedAtomicReceipt
+
+  useEffect(() => {
+    if (!address || !chainId || !atomicContextKey) return
+    const record = loadPendingBatch(window.localStorage, { account: address, chainId, mode: 'atomic' })
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
+      setTrackedAtomicBatch((current) => current?.contextKey === atomicContextKey
+        ? current
+        : record?.mode === 'atomic' ? { id: record.id, contextKey: atomicContextKey } : null)
+    })
+    return () => { cancelled = true }
+  }, [address, atomicContextKey, chainId])
+
+  useEffect(() => {
+    if (!address || !chainId || !atomicBatchId) return
+    if (callsStatus?.status !== 'success' && callsStatus?.status !== 'failure' && !hasRevertedAtomicReceipt) return
+    clearPendingBatch(window.localStorage, { account: address, chainId, mode: 'atomic' })
+  }, [address, atomicBatchId, callsStatus?.status, chainId, hasRevertedAtomicReceipt])
 
   const { mutateAsync: writeContractAsync } = useWriteContract()
   const [sequentialStep, setSequentialStep] = useState<SequentialStep>('idle')
@@ -51,6 +79,12 @@ export function BatchedTransferDemo() {
         { to: DEMO_ERC20_ADDRESS, abi: erc20Abi, functionName: 'transfer', args: [DEMO_RECIPIENT_B, DEMO_TRANSFER_AMOUNT] },
       ],
       forceAtomic: true,
+    }, {
+      onSuccess: ({ id }) => {
+        if (!atomicContextKey || !chainId) return
+        savePendingBatch(window.localStorage, { account: address, chainId, mode: 'atomic', id })
+        setTrackedAtomicBatch({ id, contextKey: atomicContextKey })
+      },
     })
   }
 
@@ -122,14 +156,17 @@ export function BatchedTransferDemo() {
     'confirming-second',
   ].includes(sequentialStep)
 
-  if (support !== 'sequential-fallback') {
-    const isAtomicBatchBusy = atomicBatchState === 'awaiting-wallet' || atomicBatchState === 'confirming'
+  if (support !== 'sequential-fallback' || !!atomicBatchId) {
+    const isAtomicBatchBusy = atomicBatchState === 'awaiting-wallet'
+      || atomicBatchState === 'confirming'
+      || isAtomicBatchUnresolved
 
     return (
       <div className="space-y-2">
         <Button className="w-full" onClick={handleAtomicTransfer} disabled={isAtomicBatchBusy}>
           {atomicBatchState === 'awaiting-wallet' && '等待钱包确认批量交易…'}
           {atomicBatchState === 'confirming' && '批量交易链上确认中…'}
+          {atomicBatchState === 'failure' && isAtomicBatchUnresolved && '批量状态暂时无法确认'}
           {!isAtomicBatchBusy && '批量转账(原子)'}
         </Button>
         {support === 'upgrade-then-atomic' && (
