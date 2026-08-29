@@ -26,7 +26,7 @@ vi.mock('@google/genai', () => ({
 function request(body: string, contentType = 'application/json') {
   return new Request('http://localhost/api/risk-copilot', {
     method: 'POST',
-    headers: { 'Content-Type': contentType },
+    headers: { 'Content-Type': contentType, Origin: 'http://localhost' },
     body,
   })
 }
@@ -45,6 +45,20 @@ describe('POST /api/risk-copilot', () => {
     const response = await POST(request(JSON.stringify({ findings: [finding] })))
 
     expect(response.status).toBe(401)
+    expect(mocks.generateContent).not.toHaveBeenCalled()
+  })
+
+  it('rejects a cross-origin request before session or AI work', async () => {
+    const crossOriginRequest = new Request('http://localhost/api/risk-copilot', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: 'https://evil.example' },
+      body: JSON.stringify({ findings: [finding] }),
+    })
+
+    const response = await POST(crossOriginRequest)
+
+    expect(response.status).toBe(403)
+    expect(mocks.getSession).not.toHaveBeenCalled()
     expect(mocks.generateContent).not.toHaveBeenCalled()
   })
 

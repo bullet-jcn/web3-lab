@@ -1,4 +1,5 @@
 import { getSession } from '@/lib/auth/session'
+import { enforceSameOrigin } from '@/lib/auth/origin'
 import { formatDeterministicRiskWarning, parseRiskFindingsRequest } from '@/lib/riskCheck'
 import { GoogleGenAI, type GenerateContentResponse } from '@google/genai'
 import { NextResponse } from 'next/server'
@@ -16,6 +17,9 @@ const SYSTEM_PROMPT = `你是一个 web3 钱包的安全助手。你会收到一
 3. 总共不超过 3 句话。`
 
 export async function POST(request: Request): Promise<Response> {
+  const originError = enforceSameOrigin(request)
+  if (originError) return originError
+
   const session = await getSession()
   if (!session) {
     return NextResponse.json({ error: '未登录' }, { status: 401 })

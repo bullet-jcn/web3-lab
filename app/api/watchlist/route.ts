@@ -1,5 +1,6 @@
 import { isAddress } from 'viem'
 import { getSession } from '@/lib/auth/session'
+import { enforceSameOrigin } from '@/lib/auth/origin'
 import {
   addToWatchlist,
   getWatchlist,
@@ -33,6 +34,9 @@ export async function GET(): Promise<Response> {
 }
 
 export async function POST(request: Request): Promise<Response> {
+  const originError = enforceSameOrigin(request)
+  if (originError) return originError
+
   const session = await getSession()
   if (!session) {
     return NextResponse.json({ error: '未登录' }, { status: 401 })
@@ -56,6 +60,9 @@ export async function POST(request: Request): Promise<Response> {
 }
 
 export async function DELETE(request: Request): Promise<Response> {
+  const originError = enforceSameOrigin(request)
+  if (originError) return originError
+
   const session = await getSession()
   if (!session) {
     return NextResponse.json({ error: '未登录' }, { status: 401 })
