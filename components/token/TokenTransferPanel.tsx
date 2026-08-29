@@ -3,20 +3,32 @@
 import { getErrorMessage } from "@/lib/errors";
 import { DEMO_ERC20_ADDRESS, DEMO_RECIPIENT_C, DEMO_TRANSFER_AMOUNT } from "@/lib/constants";
 import { erc20Abi, parseEther, type Hash, type ReplacementReason } from "viem";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useConnection, useReadContract, useSendTransaction, useSimulateContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
 import { Button } from "@/components/ui/button";
 import { useWriteChainGuard } from "@/lib/hooks/useWriteChainGuard";
 import { getReplacementMessage, resolveTransactionState } from "@/lib/transactionState";
+import { clearPendingTransaction, loadPendingTransaction, savePendingTransaction, type PendingTransactionKind } from "@/lib/pendingTransactionStorage";
 
 interface ReplacementInfo {
     reason: ReplacementReason
     hash: Hash
 }
 
+interface TrackedTransaction {
+    contextKey: string
+    hash: Hash
+}
+
+function transactionContextKey(address: `0x${string}` | undefined, chainId: number | undefined, kind: PendingTransactionKind) {
+    return address && chainId ? `${chainId}:${address.toLowerCase()}:${kind}` : null
+}
+
 export function TokenTransferPanel() {
     const { address } = useConnection()
-    const { writeChain, isCorrectChain, switchToWriteChain, isSwitchingChain, switchChainError } = useWriteChainGuard()
+    const { chainId, writeChain, isCorrectChain, switchToWriteChain, isSwitchingChain, switchChainError } = useWriteChainGuard()
+    const transferContextKey = transactionContextKey(address, chainId, 'erc20-transfer')
+    const sendContextKey = transactionContextKey(address, chainId, 'native-transfer')
 
     const { data: tokenBalance } = useReadContract({
         address: DEMO_ERC20_ADDRESS,
@@ -36,7 +48,9 @@ export function TokenTransferPanel() {
         query: { enabled: !!address && isCorrectChain },
     })
 
-    const { mutate: writeContract, data: transferHash, isPending: isAwaitingTransferWallet, error: writeError } = useWriteContract()
+    const { mutate: writeContract, isPending: isAwaitingTransferWallet, error: writeError } = useWriteContract()
+    const [trackedTransfer, setTrackedTransfer] = useState<TrackedTransaction | null>(null)
+    const transferHash = trackedTransfer?.contextKey === transferContextKey ? trackedTransfer.hash : undefined
     const [transferReplacement, setTransferReplacement] = useState<ReplacementInfo | null>(null)
     const {
         isLoading: isConfirmingTransfer,
@@ -44,10 +58,15 @@ export function TokenTransferPanel() {
         error: transferReceiptError,
     } = useWaitForTransactionReceipt({
         hash: transferHash,
-        onReplaced: ({ reason, transaction }) => setTransferReplacement({ reason, hash: transaction.hash }),
+        onReplaced: ({ reason, transaction }) => {
+            setTransferReplacement({ reason, hash: transaction.hash })
+            handleReplacement('erc20-transfer', transferContextKey, reason, transaction.hash, setTrackedTransfer)
+        },
     })
 
-    const { mutate: sendTransaction, data: sendHash, isPending: isAwaitingSendWallet, error: sendError } = useSendTransaction()
+    const { mutate: sendTransaction, isPending: isAwaitingSendWallet, error: sendError } = useSendTransaction()
+    const [trackedSend, setTrackedSend] = useState<TrackedTransaction | null>(null)
+    const sendHash = trackedSend?.contextKey === sendContextKey ? trackedSend.hash : undefined
     const [sendReplacement, setSendReplacement] = useState<ReplacementInfo | null>(null)
     const {
         isLoading: isConfirmingSend,
@@ -55,8 +74,66 @@ export function TokenTransferPanel() {
         error: sendReceiptError,
     } = useWaitForTransactionReceipt({
         hash: sendHash,
-        onReplaced: ({ reason, transaction }) => setSendReplacement({ reason, hash: transaction.hash }),
+        onReplaced: ({ reason, transaction }) => {
+            setSendReplacement({ reason, hash: transaction.hash })
+            handleReplacement('native-transfer', sendContextKey, reason, transaction.hash, setTrackedSend)
+        },
     })
+
+    useEffect(() => {
+        if (!address || !chainId || !transferContextKey) return
+        const record = loadPendingTransaction(window.localStorage, { account: address, chainId, kind: 'erc20-transfer' })
+        let cancelled = false
+        queueMicrotask(() => {
+            if (cancelled) return
+            setTrackedTransfer((current) => current?.contextKey === transferContextKey
+                ? current
+                : record ? { contextKey: transferContextKey, hash: record.hash } : null)
+            setTransferReplacement(null)
+        })
+        return () => { cancelled = true }
+    }, [address, chainId, transferContextKey])
+
+    useEffect(() => {
+        if (!address || !chainId || !sendContextKey) return
+        const record = loadPendingTransaction(window.localStorage, { account: address, chainId, kind: 'native-transfer' })
+        let cancelled = false
+        queueMicrotask(() => {
+            if (cancelled) return
+            setTrackedSend((current) => current?.contextKey === sendContextKey
+                ? current
+                : record ? { contextKey: sendContextKey, hash: record.hash } : null)
+            setSendReplacement(null)
+        })
+        return () => { cancelled = true }
+    }, [address, chainId, sendContextKey])
+
+    useEffect(() => {
+        if (!isTransferConfirmed || !address || !chainId || !transferHash) return
+        clearPendingTransaction(window.localStorage, { account: address, chainId, kind: 'erc20-transfer' })
+    }, [address, chainId, isTransferConfirmed, transferHash])
+
+    useEffect(() => {
+        if (!isSendConfirmed || !address || !chainId || !sendHash) return
+        clearPendingTransaction(window.localStorage, { account: address, chainId, kind: 'native-transfer' })
+    }, [address, chainId, isSendConfirmed, sendHash])
+
+    function trackSubmittedTransaction(kind: PendingTransactionKind, contextKey: string | null, hash: Hash, setTracked: (value: TrackedTransaction) => void) {
+        if (!address || !chainId || !contextKey) return
+        savePendingTransaction(window.localStorage, { account: address, chainId, kind, hash })
+        setTracked({ contextKey, hash })
+    }
+
+    function handleReplacement(kind: PendingTransactionKind, contextKey: string | null, reason: ReplacementReason, hash: Hash, setTracked: (value: TrackedTransaction | null) => void) {
+        if (!address || !chainId || !contextKey) return
+        if (reason === 'repriced') {
+            savePendingTransaction(window.localStorage, { account: address, chainId, kind, hash })
+            setTracked({ contextKey, hash })
+        } else {
+            clearPendingTransaction(window.localStorage, { account: address, chainId, kind })
+            setTracked(null)
+        }
+    }
 
     function handleTransfer() {
         if (!address || !isCorrectChain) return
@@ -66,6 +143,8 @@ export function TokenTransferPanel() {
             abi: erc20Abi,
             functionName: 'transfer',
             args: [DEMO_RECIPIENT_C, DEMO_TRANSFER_AMOUNT],
+        }, {
+            onSuccess: (hash) => trackSubmittedTransaction('erc20-transfer', transferContextKey, hash, setTrackedTransfer),
         })
     }
 
@@ -75,6 +154,8 @@ export function TokenTransferPanel() {
         sendTransaction({
             to: DEMO_RECIPIENT_C,
             value: parseEther('0.0001'), // 发送一点点真实的SepoliaETH
+        }, {
+            onSuccess: (hash) => trackSubmittedTransaction('native-transfer', sendContextKey, hash, setTrackedSend),
         })
     }
 
