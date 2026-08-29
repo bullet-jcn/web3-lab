@@ -31,9 +31,7 @@
 
 ## 当前未提交业务文件
 
-- `docs/LEARNING_PROGRESS.md`
-
-`docs/PRODUCT_SPEC.md` 与 `docs/PRODUCTION_ROADMAP.md` 是此前已有的未跟踪产品文档，不属于当前业务步骤。
+无。`docs/PRODUCT_SPEC.md` 与 `docs/PRODUCTION_ROADMAP.md` 是此前已有的未跟踪产品文档，不属于当前业务步骤。
 
 ## 最近完成的业务提交
 
