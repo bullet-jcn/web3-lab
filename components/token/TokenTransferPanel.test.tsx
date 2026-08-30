@@ -23,7 +23,14 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('wagmi', () => ({
   useConnection: () => ({ address: ACCOUNT }),
-  useReadContract: () => ({ data: BigInt(1) }),
+  useReadContract: (options: { functionName: string }) => ({
+    data: options.functionName === 'decimals'
+      ? 6
+      : options.functionName === 'symbol'
+        ? 'USDC'
+        : BigInt(1_500_000),
+    error: null,
+  }),
   useSimulateContract: () => ({ error: null }),
   useWriteContract: () => ({ mutate: mocks.writeContract, isPending: false, error: null }),
   useSendTransaction: () => ({ mutate: mocks.sendTransaction, isPending: false, error: null }),
@@ -86,10 +93,28 @@ describe('TokenTransferPanel pending transactions', () => {
     mocks.writeContract.mockImplementation((_request, options) => options.onSuccess(TRANSFER_HASH))
     render(<TokenTransferPanel />)
 
+    fireEvent.change(screen.getByLabelText('ERC-20 收款地址'), { target: { value: '0x8F7b86Fe8f1a5CaB00Aa66cBb3E3BBF6a79535EE' } })
+    fireEvent.change(screen.getByLabelText('USDC 数量'), { target: { value: '1.25' } })
     fireEvent.click(screen.getByRole('button', { name: '转账' }))
 
     await waitFor(() => expect(localStorage.getItem(storageKey('erc20-transfer'))).toContain(TRANSFER_HASH))
     expect(screen.getByText('链上确认中…')).toBeInTheDocument()
+    expect(mocks.writeContract).toHaveBeenCalledWith(expect.objectContaining({
+      functionName: 'transfer',
+      args: ['0x8F7b86Fe8f1a5CaB00Aa66cBb3E3BBF6a79535EE', BigInt(1_250_000)],
+    }), expect.any(Object))
+  })
+
+  it('shows formatted token balance and blocks excess precision', () => {
+    render(<TokenTransferPanel />)
+
+    expect(screen.getByText('USDC 余额: 1.5')).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('ERC-20 收款地址'), { target: { value: '0x8F7b86Fe8f1a5CaB00Aa66cBb3E3BBF6a79535EE' } })
+    fireEvent.change(screen.getByLabelText('USDC 数量'), { target: { value: '0.0000001' } })
+
+    expect(screen.getByText('请输入最多 6 位小数的正数')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '转账' })).toBeDisabled()
+    expect(mocks.writeContract).not.toHaveBeenCalled()
   })
 
   it('stores a submitted native transfer separately', async () => {

@@ -1,8 +1,8 @@
 'use client'
 
 import { getErrorMessage } from "@/lib/errors";
-import { DEMO_ERC20_ADDRESS, DEMO_RECIPIENT_C, DEMO_TRANSFER_AMOUNT } from "@/lib/constants";
-import { erc20Abi, type Hash, type ReplacementReason } from "viem";
+import { DEMO_ERC20_ADDRESS } from "@/lib/constants";
+import { erc20Abi, formatUnits, type Hash, type ReplacementReason } from "viem";
 import { useEffect, useState } from "react";
 import { useConnection, useReadContract, useSendTransaction, useSimulateContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import { getReplacementMessage, resolveTransactionState } from "@/lib/transactio
 import { clearPendingTransaction, loadPendingTransaction, savePendingTransaction, type PendingTransactionKind } from "@/lib/pendingTransactionStorage";
 import { parseNativeTransferInput } from "@/lib/nativeTransferInput";
 import { Input } from "@/components/ui/input";
+import { parseErc20TransferInput } from "@/lib/erc20TransferInput";
 
 interface ReplacementInfo {
     reason: ReplacementReason
@@ -34,6 +35,28 @@ export function TokenTransferPanel() {
     const [nativeRecipient, setNativeRecipient] = useState('')
     const [nativeAmount, setNativeAmount] = useState('')
     const nativeTransferInput = parseNativeTransferInput(nativeRecipient, nativeAmount)
+    const [erc20Recipient, setErc20Recipient] = useState('')
+    const [erc20Amount, setErc20Amount] = useState('')
+
+    const { data: tokenDecimals, error: tokenDecimalsError } = useReadContract({
+        address: DEMO_ERC20_ADDRESS,
+        abi: erc20Abi,
+        functionName: 'decimals',
+        query: { enabled: isCorrectChain },
+    })
+    const { data: rawTokenSymbol } = useReadContract({
+        address: DEMO_ERC20_ADDRESS,
+        abi: erc20Abi,
+        functionName: 'symbol',
+        query: { enabled: isCorrectChain },
+    })
+    const tokenSymbol = typeof rawTokenSymbol === 'string'
+        && rawTokenSymbol.length > 0
+        && rawTokenSymbol.length <= 12
+        && /^[\x20-\x7e]+$/.test(rawTokenSymbol)
+        ? rawTokenSymbol
+        : 'ERC-20'
+    const erc20TransferInput = parseErc20TransferInput(erc20Recipient, erc20Amount, tokenDecimals)
 
     const { data: tokenBalance } = useReadContract({
         address: DEMO_ERC20_ADDRESS,
@@ -49,8 +72,8 @@ export function TokenTransferPanel() {
         address: DEMO_ERC20_ADDRESS,
         abi: erc20Abi,
         functionName: 'transfer',
-        args: address ? [DEMO_RECIPIENT_C, DEMO_TRANSFER_AMOUNT] : undefined,
-        query: { enabled: !!address && isCorrectChain },
+        args: erc20TransferInput.ok ? [erc20TransferInput.recipient, erc20TransferInput.amount] : undefined,
+        query: { enabled: !!address && isCorrectChain && erc20TransferInput.ok },
     })
 
     const { mutate: writeContract, isPending: isAwaitingTransferWallet, error: writeError } = useWriteContract()
@@ -141,13 +164,13 @@ export function TokenTransferPanel() {
     }
 
     function handleTransfer() {
-        if (!address || !isCorrectChain) return
+        if (!address || !isCorrectChain || !erc20TransferInput.ok) return
         setTransferReplacement(null)
         writeContract({
             address: DEMO_ERC20_ADDRESS,
             abi: erc20Abi,
             functionName: 'transfer',
-            args: [DEMO_RECIPIENT_C, DEMO_TRANSFER_AMOUNT],
+            args: [erc20TransferInput.recipient, erc20TransferInput.amount],
         }, {
             onSuccess: (hash) => trackSubmittedTransaction('erc20-transfer', transferContextKey, hash, setTrackedTransfer),
         })
@@ -206,11 +229,44 @@ export function TokenTransferPanel() {
             )}
 
             <p className="text-sm text-gray-500 dark:text-neutral-400">
-                {tokenBalance !== undefined ? `USDC余额(原始): ${tokenBalance}` : '未查询到余额'}
+                {tokenBalance !== undefined && tokenDecimals !== undefined
+                    ? `${tokenSymbol} 余额: ${formatUnits(tokenBalance, tokenDecimals)}`
+                    : '正在读取代币信息…'}
             </p>
 
             <div className="space-y-2">
-                <Button className="w-full" onClick={handleTransfer} disabled={!address || !isCorrectChain || !!simulateError || isTransferBusy}>
+                <div className="space-y-1">
+                    <label className="text-sm font-medium" htmlFor="erc20-recipient">ERC-20 收款地址</label>
+                    <Input
+                        id="erc20-recipient"
+                        value={erc20Recipient}
+                        onChange={(event) => setErc20Recipient(event.target.value)}
+                        placeholder="0x…"
+                        autoComplete="off"
+                        spellCheck={false}
+                        aria-invalid={!!erc20Recipient && !erc20TransferInput.ok && !!erc20TransferInput.recipientError}
+                    />
+                    {!!erc20Recipient && !erc20TransferInput.ok && erc20TransferInput.recipientError && (
+                        <p className="text-sm text-destructive">{erc20TransferInput.recipientError}</p>
+                    )}
+                </div>
+                <div className="space-y-1">
+                    <label className="text-sm font-medium" htmlFor="erc20-amount">{tokenSymbol} 数量</label>
+                    <Input
+                        id="erc20-amount"
+                        value={erc20Amount}
+                        onChange={(event) => setErc20Amount(event.target.value)}
+                        placeholder="1.0"
+                        inputMode="decimal"
+                        autoComplete="off"
+                        aria-invalid={!!erc20Amount && !erc20TransferInput.ok && !!erc20TransferInput.amountError}
+                    />
+                    {!!erc20Amount && !erc20TransferInput.ok && erc20TransferInput.amountError && (
+                        <p className="text-sm text-destructive">{erc20TransferInput.amountError}</p>
+                    )}
+                    {tokenDecimalsError && <p className="text-sm text-destructive">无法读取代币精度，已阻止转账</p>}
+                </div>
+                <Button className="w-full" onClick={handleTransfer} disabled={!address || !isCorrectChain || !erc20TransferInput.ok || !!simulateError || isTransferBusy}>
                     {transferState === 'awaiting-wallet' && '等待钱包确认…'}
                     {transferState === 'confirming' && '链上确认中…'}
                     {!isTransferBusy && '转账'}
@@ -225,7 +281,7 @@ export function TokenTransferPanel() {
                 {transferErrorMessage && (
                     <div className="flex items-center gap-2">
                         <p className="text-sm text-destructive">{transferErrorMessage}</p>
-                        <Button variant="ghost" onClick={handleTransfer} disabled={!address || !isCorrectChain || isTransferBusy}>重试</Button>
+                        <Button variant="ghost" onClick={handleTransfer} disabled={!address || !isCorrectChain || !erc20TransferInput.ok || isTransferBusy}>重试</Button>
                     </div>
                 )}
             </div>
