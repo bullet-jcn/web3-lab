@@ -4,7 +4,7 @@
 
 ## 当前目标
 
-推进 Milestone 2 / Batch C 的真实转账工作流，并在每一步保留可 Review 的未提交 Diff。Milestone 1 完整学习复盘已应用户要求暂停，后续从“Chain Registry 与写操作链边界”继续。
+推进 Milestone 2 / Batch C 的真实转账工作流，并在每一步保留可 Review 的未提交 Diff。完整学习复盘已再次暂停：钱包身份、链边界、交易生命周期、replacement/partial success、持久化边界和 EIP-5792 已复习，后续从“授权风险与 AI 边界”继续。
 
 ## 已完成
 
@@ -33,10 +33,12 @@
 - 状态变更 API 已加入共享同源 Origin 防护：登录验证、登出、watchlist 写入和风险 AI 端点默认拒绝缺失或跨站来源，代理头仅在显式信任时使用。
 - Milestone 1 收尾审计已补齐 SIWE `uri`/version/scheme 绑定、登录与 watchlist JSON 类型及字节边界，以及全站 CSP、frame、MIME、referrer 和 permissions 安全响应头；现有功能满足 Milestone 1 的代码退出条件。
 - Milestone 2 / Batch C 已启动：原生 ETH 转账不再使用固定收款人和金额，新增确定性的地址与 18 位精度金额解析，在钱包请求前拒绝非法地址、零地址、非正数和不可精确表示的输入。
+- ERC-20 转账已改为用户输入收款人和人类可读金额：从目标链合约读取 `decimals`/`symbol`，按真实精度转换为最小单位，拒绝超精度、零地址、非正数和 uint256 溢出，并将原始余额格式化为代币单位展示。
+- 学习复盘已完成至 EIP-5792：已经复习钱包连接与 SIWE 身份、chain/network、交易 hash/receipt 生命周期、replacement/revert/partial success、待确认状态持久化和原子/顺序批量语义。
 
 ## 当前未提交业务文件
 
-无。Batch C 首个原生 ETH 输入切片已提交，当前仅更新本恢复文件。
+无。ERC-20 metadata/decimals 输入切片已提交，当前仅更新本恢复文件。
 
 `docs/PRODUCT_SPEC.md` 与 `docs/PRODUCTION_ROADMAP.md` 是此前已有的未跟踪产品文档，不属于当前业务步骤。
 
@@ -58,6 +60,7 @@
 - `4408e92 feat: enforce same-origin API mutations`
 - `e7d8a2f fix: close milestone one security gaps`
 - `171beb9 feat: validate native transfer input`
+- `0ae417b feat: parse ERC-20 transfer amounts`
 
 ## 当前步骤的设计结论
 
@@ -97,9 +100,11 @@ Milestone 1 退出证据：账户不一致时授权 UI 被阻断；写路径绑�
 
 Batch C 首个切片只替换原生 ETH 的固定输入，不同时改 ERC-20、余额、ENS、Gas 和 Review Screen。地址通过 viem 严格校验后规范化为 checksum address，并显式阻止零地址；金额只接受普通十进制定点格式，最多 18 位小数，再用 `parseEther` 转成整数 wei。表单永远不使用 JavaScript 浮点数，解析失败时也不会触发钱包请求。原有回执状态机、替换处理和待确认交易恢复保持不变。
 
+ERC-20 金额不能假设 18 位精度：本轮先读取当前写链上固定代币合约的 `decimals()`，再用 `parseUnits` 将用户字符串转换为整数最小单位；0-decimal 代币不接受小数，结果还必须落在 uint256 范围内。`symbol()` 属于合约提供的不可信展示 metadata，因此只接受 1–12 个可打印 ASCII 字符，异常时退回 `ERC-20`，绝不让 symbol 决定合约地址、精度或交易参数。模拟与钱包请求复用同一个已解析 payload，避免 UI 展示值和实际发送值分叉。
+
 ## 下一步
 
-为 ERC-20 建立 token metadata/decimals 驱动的金额解析边界，再接入余额与不足额校验；暂停的 Milestone 1 学习复盘保留，待用户恢复。
+复用已解析的整数金额接入 ERC-20 余额与不足额校验，再处理原生 ETH 余额和 Gas 预留。学习复盘待恢复时从“授权风险与 AI 边界”继续。
 
 ## 工作约束
 
