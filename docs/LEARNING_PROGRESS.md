@@ -37,10 +37,11 @@
 - 学习复盘已完成至 EIP-5792：已经复习钱包连接与 SIWE 身份、chain/network、交易 hash/receipt 生命周期、replacement/revert/partial success、待确认状态持久化和原子/顺序批量语义。
 - ERC-20 转账已加入当前账户余额边界：余额未知或读取失败时 fail closed，解析后的最小单位金额超过余额时在钱包请求前阻止，成功 Receipt 后重新读取余额。
 - 原生 ETH 转账已加入余额与 EIP-1559 Gas 预算：读取当前账户余额、估算目标请求的 Gas 单位和 `maxFeePerGas`，只有 `value + gas × maxFeePerGas <= balance` 时才允许请求钱包，确认后刷新余额。
+- ETH 与 ERC-20 转账已加入钱包前 Review 快照：第一次操作只冻结并展示 chain、asset、recipient、显示金额、最小单位、余额以及适用的 Gas 预算，第二次确认才调用钱包；输入、账户、链、余额、模拟或 Gas 证据变化会使旧快照失效。
 
 ## 当前未提交业务文件
 
-无。原生 ETH 余额与 Gas 预算已提交，当前仅更新本恢复文件。
+无。转账 Review 快照已提交，当前仅更新本恢复文件。
 
 `docs/PRODUCT_SPEC.md` 与 `docs/PRODUCTION_ROADMAP.md` 是此前已有的未跟踪产品文档，不属于当前业务步骤。
 
@@ -65,6 +66,7 @@
 - `0ae417b feat: parse ERC-20 transfer amounts`
 - `3db8b05 feat: enforce ERC-20 balance limits`
 - `3688b65 feat: reserve native transfer gas`
+- `f6b1b50 feat: review transfer payloads before signing`
 
 ## 当前步骤的设计结论
 
@@ -110,9 +112,11 @@ ERC-20 余额比较只在输入已解析为整数最小单位且当前账户、�
 
 原生 ETH 余额不能只比较 `value <= balance`，因为同一余额还要支付 Gas。本轮使用当前请求的 `estimateGas` 与 EIP-1559 `maxFeePerGas` 计算保守预算上限，全部以 wei `bigint` 运算；余额、Gas 或 fee 任一未知/失败都禁止发送。该预算不是最终扣费保证：base fee、钱包参数和链上状态仍可能变化，最终费用由实际 `gasUsed × effectiveGasPrice` 决定，因此 UI 使用“预留最高 Gas 成本”措辞，Receipt 仍是最终证据。
 
+Review Screen 不是把当前表单再显示一次，而是创建运行时冻结的判别快照；确认 handler 直接使用快照中的链上整数 payload，不重新解析可编辑输入。任何输入修改都会清除快照，账户/链上下文变化也会异步废弃；余额、token decimals、模拟结果或原生 Gas 预算变化时旧快照不再可确认。这样用户看到的 evidence 与交给钱包的 recipient/value/amount 保持同一版本，同时仍要求用户在钱包内做最终核对。
+
 ## 下一步
 
-设计转账 Review Screen，使 chain、asset、recipient、human amount、base-unit amount 和 Gas 预算在钱包弹窗前形成不可变快照；学习复盘待恢复时从“授权风险与 AI 边界”继续。
+估算 ERC-20 `transfer` 的 Gas，并用原生 ETH 余额覆盖该预算；只有 token 余额与 Gas 余额同时充足才允许生成 ERC-20 Review。学习复盘待恢复时从“授权风险与 AI 边界”继续。
 
 ## 工作约束
 
