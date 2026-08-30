@@ -12,6 +12,7 @@ import { clearPendingTransaction, loadPendingTransaction, savePendingTransaction
 import { parseNativeTransferInput } from "@/lib/nativeTransferInput";
 import { Input } from "@/components/ui/input";
 import { parseErc20TransferInput } from "@/lib/erc20TransferInput";
+import { resolveTokenBalanceState } from "@/lib/tokenBalance";
 
 interface ReplacementInfo {
     reason: ReplacementReason
@@ -58,7 +59,7 @@ export function TokenTransferPanel() {
         : 'ERC-20'
     const erc20TransferInput = parseErc20TransferInput(erc20Recipient, erc20Amount, tokenDecimals)
 
-    const { data: tokenBalance } = useReadContract({
+    const { data: tokenBalance, error: tokenBalanceError, refetch: refetchTokenBalance } = useReadContract({
         address: DEMO_ERC20_ADDRESS,
         abi: erc20Abi,
         functionName: 'balanceOf',
@@ -67,6 +68,10 @@ export function TokenTransferPanel() {
             enabled: !!address && isCorrectChain,  // 合约地址只在目标链上有确定含义
         },
     })
+    const tokenBalanceState = resolveTokenBalanceState(
+        erc20TransferInput.ok ? erc20TransferInput.amount : undefined,
+        tokenBalance,
+    )
 
     const { error: simulateError } = useSimulateContract({
         address: DEMO_ERC20_ADDRESS,
@@ -139,7 +144,8 @@ export function TokenTransferPanel() {
     useEffect(() => {
         if (!isTransferConfirmed || !address || !chainId || !transferHash) return
         clearPendingTransaction(window.localStorage, { account: address, chainId, kind: 'erc20-transfer' })
-    }, [address, chainId, isTransferConfirmed, transferHash])
+        void refetchTokenBalance()
+    }, [address, chainId, isTransferConfirmed, refetchTokenBalance, transferHash])
 
     useEffect(() => {
         if (!isSendConfirmed || !address || !chainId || !sendHash) return
@@ -164,7 +170,7 @@ export function TokenTransferPanel() {
     }
 
     function handleTransfer() {
-        if (!address || !isCorrectChain || !erc20TransferInput.ok) return
+        if (!address || !isCorrectChain || !erc20TransferInput.ok || tokenBalanceState !== 'sufficient') return
         setTransferReplacement(null)
         writeContract({
             address: DEMO_ERC20_ADDRESS,
@@ -265,8 +271,14 @@ export function TokenTransferPanel() {
                         <p className="text-sm text-destructive">{erc20TransferInput.amountError}</p>
                     )}
                     {tokenDecimalsError && <p className="text-sm text-destructive">无法读取代币精度，已阻止转账</p>}
+                    {tokenBalanceError && <p className="text-sm text-destructive">无法读取代币余额，已阻止转账</p>}
+                    {erc20TransferInput.ok && tokenBalanceState === 'insufficient' && tokenBalance !== undefined && tokenDecimals !== undefined && (
+                        <p className="text-sm text-destructive">
+                            余额不足，当前可用 {formatUnits(tokenBalance, tokenDecimals)} {tokenSymbol}
+                        </p>
+                    )}
                 </div>
-                <Button className="w-full" onClick={handleTransfer} disabled={!address || !isCorrectChain || !erc20TransferInput.ok || !!simulateError || isTransferBusy}>
+                <Button className="w-full" onClick={handleTransfer} disabled={!address || !isCorrectChain || !erc20TransferInput.ok || tokenBalanceState !== 'sufficient' || !!simulateError || isTransferBusy}>
                     {transferState === 'awaiting-wallet' && '等待钱包确认…'}
                     {transferState === 'confirming' && '链上确认中…'}
                     {!isTransferBusy && '转账'}
@@ -281,7 +293,7 @@ export function TokenTransferPanel() {
                 {transferErrorMessage && (
                     <div className="flex items-center gap-2">
                         <p className="text-sm text-destructive">{transferErrorMessage}</p>
-                        <Button variant="ghost" onClick={handleTransfer} disabled={!address || !isCorrectChain || !erc20TransferInput.ok || isTransferBusy}>重试</Button>
+                        <Button variant="ghost" onClick={handleTransfer} disabled={!address || !isCorrectChain || !erc20TransferInput.ok || tokenBalanceState !== 'sufficient' || isTransferBusy}>重试</Button>
                     </div>
                 )}
             </div>

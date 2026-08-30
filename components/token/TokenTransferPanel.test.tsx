@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   confirmedHashes: new Set<string>(),
   writeContract: vi.fn(),
   sendTransaction: vi.fn(),
+  refetchTokenBalance: vi.fn(),
 }))
 
 vi.mock('wagmi', () => ({
@@ -30,6 +31,7 @@ vi.mock('wagmi', () => ({
         ? 'USDC'
         : BigInt(1_500_000),
     error: null,
+    refetch: options.functionName === 'balanceOf' ? mocks.refetchTokenBalance : vi.fn(),
   }),
   useSimulateContract: () => ({ error: null }),
   useWriteContract: () => ({ mutate: mocks.writeContract, isPending: false, error: null }),
@@ -77,6 +79,7 @@ describe('TokenTransferPanel pending transactions', () => {
     mocks.confirmedHashes.clear()
     mocks.writeContract.mockReset()
     mocks.sendTransaction.mockReset()
+    mocks.refetchTokenBalance.mockReset()
   })
 
   it('restores both transfer hashes and resumes receipt queries', async () => {
@@ -117,6 +120,17 @@ describe('TokenTransferPanel pending transactions', () => {
     expect(mocks.writeContract).not.toHaveBeenCalled()
   })
 
+  it('blocks an ERC-20 amount above the current account balance', () => {
+    render(<TokenTransferPanel />)
+
+    fireEvent.change(screen.getByLabelText('ERC-20 收款地址'), { target: { value: '0x8F7b86Fe8f1a5CaB00Aa66cBb3E3BBF6a79535EE' } })
+    fireEvent.change(screen.getByLabelText('USDC 数量'), { target: { value: '1.500001' } })
+
+    expect(screen.getByText('余额不足，当前可用 1.5 USDC')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '转账' })).toBeDisabled()
+    expect(mocks.writeContract).not.toHaveBeenCalled()
+  })
+
   it('stores a submitted native transfer separately', async () => {
     mocks.sendTransaction.mockImplementation((_request, options) => options.onSuccess(SEND_HASH))
     render(<TokenTransferPanel />)
@@ -152,6 +166,7 @@ describe('TokenTransferPanel pending transactions', () => {
 
     expect(await screen.findByText('转账成功!')).toBeInTheDocument()
     await waitFor(() => expect(localStorage.getItem(storageKey('erc20-transfer'))).toBeNull())
+    expect(mocks.refetchTokenBalance).toHaveBeenCalled()
   })
 
   it('clears storage and removes success when the original transfer is cancelled', async () => {
