@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { parseErc20TransferInput } from "@/lib/erc20TransferInput";
 import { resolveTokenBalanceState } from "@/lib/tokenBalance";
 import { resolveNativeTransferBudget } from "@/lib/nativeTransferBudget";
+import { createTransferReview, type TransferReview } from "@/lib/transferReview";
 
 interface ReplacementInfo {
     reason: ReplacementReason
@@ -34,6 +35,8 @@ export function TokenTransferPanel() {
     const { chainId, writeChain, isCorrectChain, switchToWriteChain, isSwitchingChain, switchChainError } = useWriteChainGuard()
     const transferContextKey = transactionContextKey(address, chainId, 'erc20-transfer')
     const sendContextKey = transactionContextKey(address, chainId, 'native-transfer')
+    const reviewContextKey = address && chainId ? `${chainId}:${address.toLowerCase()}` : null
+    const [review, setReview] = useState<TransferReview | null>(null)
     const [nativeRecipient, setNativeRecipient] = useState('')
     const [nativeAmount, setNativeAmount] = useState('')
     const nativeTransferInput = parseNativeTransferInput(nativeRecipient, nativeAmount)
@@ -97,7 +100,6 @@ export function TokenTransferPanel() {
         erc20TransferInput.ok ? erc20TransferInput.amount : undefined,
         tokenBalance,
     )
-
     const { error: simulateError } = useSimulateContract({
         address: DEMO_ERC20_ADDRESS,
         abi: erc20Abi,
@@ -105,6 +107,17 @@ export function TokenTransferPanel() {
         args: erc20TransferInput.ok ? [erc20TransferInput.recipient, erc20TransferInput.amount] : undefined,
         query: { enabled: !!address && isCorrectChain && erc20TransferInput.ok },
     })
+    const activeReview = review?.contextKey !== reviewContextKey
+        ? null
+        : review.kind === 'native'
+            ? nativeTransferBudget.state === 'sufficient'
+                && nativeBalance?.value === review.balance
+                && nativeTransferBudget.gasCostLimit === review.gasCostLimit
+                ? review
+                : null
+            : tokenBalance === review.balance && tokenDecimals === review.decimals && !simulateError
+                ? review
+                : null
 
     const { mutate: writeContract, isPending: isAwaitingTransferWallet, error: writeError } = useWriteContract()
     const [trackedTransfer, setTrackedTransfer] = useState<TrackedTransaction | null>(null)
@@ -153,6 +166,14 @@ export function TokenTransferPanel() {
     }, [address, chainId, transferContextKey])
 
     useEffect(() => {
+        let cancelled = false
+        queueMicrotask(() => {
+            if (!cancelled) setReview(null)
+        })
+        return () => { cancelled = true }
+    }, [reviewContextKey])
+
+    useEffect(() => {
         if (!address || !chainId || !sendContextKey) return
         const record = loadPendingTransaction(window.localStorage, { account: address, chainId, kind: 'native-transfer' })
         let cancelled = false
@@ -195,27 +216,66 @@ export function TokenTransferPanel() {
         }
     }
 
-    function handleTransfer() {
-        if (!address || !isCorrectChain || !erc20TransferInput.ok || tokenBalanceState !== 'sufficient') return
+    function openErc20Review() {
+        if (!reviewContextKey || !chainId || !isCorrectChain || !erc20TransferInput.ok || tokenBalanceState !== 'sufficient' || tokenBalance === undefined || tokenDecimals === undefined || simulateError) return
+        setReview(createTransferReview({
+            kind: 'erc20',
+            contextKey: reviewContextKey,
+            chainId,
+            chainName: writeChain.name,
+            tokenAddress: DEMO_ERC20_ADDRESS,
+            symbol: tokenSymbol,
+            decimals: tokenDecimals,
+            recipient: erc20TransferInput.recipient,
+            displayAmount: erc20Amount.trim(),
+            amount: erc20TransferInput.amount,
+            balance: tokenBalance,
+        }))
+    }
+
+    function confirmErc20Transfer() {
+        if (!address || !isCorrectChain || activeReview?.kind !== 'erc20' || tokenBalance === undefined || activeReview.amount > tokenBalance) return
         setTransferReplacement(null)
         writeContract({
-            address: DEMO_ERC20_ADDRESS,
+            address: activeReview.tokenAddress,
             abi: erc20Abi,
             functionName: 'transfer',
-            args: [erc20TransferInput.recipient, erc20TransferInput.amount],
+            args: [activeReview.recipient, activeReview.amount],
         }, {
-            onSuccess: (hash) => trackSubmittedTransaction('erc20-transfer', transferContextKey, hash, setTrackedTransfer),
+            onSuccess: (hash) => {
+                trackSubmittedTransaction('erc20-transfer', transferContextKey, hash, setTrackedTransfer)
+                setReview(null)
+            },
         })
     }
 
-    function handleSendETH() {
-        if (!address || !isCorrectChain || !nativeTransferInput.ok || nativeTransferBudget.state !== 'sufficient') return
+    function openNativeReview() {
+        if (!reviewContextKey || !chainId || !isCorrectChain || !nativeTransferInput.ok || nativeTransferBudget.state !== 'sufficient' || nativeBalance === undefined) return
+        setReview(createTransferReview({
+            kind: 'native',
+            contextKey: reviewContextKey,
+            chainId,
+            chainName: writeChain.name,
+            recipient: nativeTransferInput.recipient,
+            displayAmount: nativeAmount.trim(),
+            symbol: 'ETH',
+            value: nativeTransferInput.value,
+            gasCostLimit: nativeTransferBudget.gasCostLimit,
+            balance: nativeBalance.value,
+        }))
+    }
+
+    function confirmNativeTransfer() {
+        if (!address || !isCorrectChain || activeReview?.kind !== 'native' || nativeBalance === undefined || activeReview.value + activeReview.gasCostLimit > nativeBalance.value) return
         setSendReplacement(null)
         sendTransaction({
-            to: nativeTransferInput.recipient,
-            value: nativeTransferInput.value,
+            to: activeReview.recipient,
+            value: activeReview.value,
         }, {
-            onSuccess: (hash) => trackSubmittedTransaction('native-transfer', sendContextKey, hash, setTrackedSend),
+            onSuccess: (hash) => {
+                trackSubmittedTransaction('native-transfer', sendContextKey, hash, setTrackedSend)
+                setReview(null)
+            },
         })
     }
 
@@ -272,7 +332,7 @@ export function TokenTransferPanel() {
                     <Input
                         id="erc20-recipient"
                         value={erc20Recipient}
-                        onChange={(event) => setErc20Recipient(event.target.value)}
+                        onChange={(event) => { setErc20Recipient(event.target.value); setReview(null) }}
                         placeholder="0x…"
                         autoComplete="off"
                         spellCheck={false}
@@ -287,7 +347,7 @@ export function TokenTransferPanel() {
                     <Input
                         id="erc20-amount"
                         value={erc20Amount}
-                        onChange={(event) => setErc20Amount(event.target.value)}
+                        onChange={(event) => { setErc20Amount(event.target.value); setReview(null) }}
                         placeholder="1.0"
                         inputMode="decimal"
                         autoComplete="off"
@@ -304,10 +364,10 @@ export function TokenTransferPanel() {
                         </p>
                     )}
                 </div>
-                <Button className="w-full" onClick={handleTransfer} disabled={!address || !isCorrectChain || !erc20TransferInput.ok || tokenBalanceState !== 'sufficient' || !!simulateError || isTransferBusy}>
+                <Button className="w-full" onClick={openErc20Review} disabled={!address || !isCorrectChain || !erc20TransferInput.ok || tokenBalanceState !== 'sufficient' || !!simulateError || isTransferBusy}>
                     {transferState === 'awaiting-wallet' && '等待钱包确认…'}
                     {transferState === 'confirming' && '链上确认中…'}
-                    {!isTransferBusy && '转账'}
+                    {!isTransferBusy && '预览 ERC-20 转账'}
                 </Button>
                 {simulateError && <p className="text-sm text-orange-500">预计会失败，暂时无法转账</p>}
                 {transferState === 'success' && <p className="text-sm text-emerald-300">转账成功!</p>}
@@ -319,7 +379,7 @@ export function TokenTransferPanel() {
                 {transferErrorMessage && (
                     <div className="flex items-center gap-2">
                         <p className="text-sm text-destructive">{transferErrorMessage}</p>
-                        <Button variant="ghost" onClick={handleTransfer} disabled={!address || !isCorrectChain || !erc20TransferInput.ok || tokenBalanceState !== 'sufficient' || isTransferBusy}>重试</Button>
+                        <Button variant="ghost" onClick={openErc20Review} disabled={!address || !isCorrectChain || !erc20TransferInput.ok || tokenBalanceState !== 'sufficient' || isTransferBusy}>重新预览</Button>
                     </div>
                 )}
             </div>
@@ -333,7 +393,7 @@ export function TokenTransferPanel() {
                     <Input
                         id="native-recipient"
                         value={nativeRecipient}
-                        onChange={(event) => setNativeRecipient(event.target.value)}
+                        onChange={(event) => { setNativeRecipient(event.target.value); setReview(null) }}
                         placeholder="0x…"
                         autoComplete="off"
                         spellCheck={false}
@@ -348,7 +408,7 @@ export function TokenTransferPanel() {
                     <Input
                         id="native-amount"
                         value={nativeAmount}
-                        onChange={(event) => setNativeAmount(event.target.value)}
+                        onChange={(event) => { setNativeAmount(event.target.value); setReview(null) }}
                         placeholder="0.001"
                         inputMode="decimal"
                         autoComplete="off"
@@ -370,10 +430,10 @@ export function TokenTransferPanel() {
                         </p>
                     )}
                 </div>
-                <Button className="w-full" variant="outline" onClick={handleSendETH} disabled={!address || !isCorrectChain || !nativeTransferInput.ok || nativeTransferBudget.state !== 'sufficient' || isSendBusy}>
+                <Button className="w-full" variant="outline" onClick={openNativeReview} disabled={!address || !isCorrectChain || !nativeTransferInput.ok || nativeTransferBudget.state !== 'sufficient' || isSendBusy}>
                     {sendState === 'awaiting-wallet' && '等待钱包确认…'}
                     {sendState === 'confirming' && '链上确认中…'}
-                    {!isSendBusy && '发送ETH'}
+                    {!isSendBusy && '预览 ETH 转账'}
                 </Button>
                 {sendState === 'success' && <p className="text-sm text-emerald-300">发送成功!</p>}
                 {sendReplacementMessage && (
@@ -383,6 +443,32 @@ export function TokenTransferPanel() {
                 )}
                 {sendErrorMessage && <p className="text-sm text-destructive">{sendErrorMessage}</p>}
             </div>
+
+            {activeReview && (
+                <div className="space-y-3 rounded-lg border border-orange-300 bg-orange-50 p-4 dark:border-orange-800 dark:bg-orange-950">
+                    <div>
+                        <p className="font-semibold">确认转账详情</p>
+                        <p className="text-xs text-muted-foreground">核对后才会打开钱包；钱包内容必须与这里一致。</p>
+                    </div>
+                    <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 text-sm">
+                        <dt className="text-muted-foreground">网络</dt><dd>{activeReview.chainName} ({activeReview.chainId})</dd>
+                        <dt className="text-muted-foreground">资产</dt><dd>{activeReview.symbol}</dd>
+                        <dt className="text-muted-foreground">收款人</dt><dd className="break-all font-mono">{activeReview.recipient}</dd>
+                        <dt className="text-muted-foreground">显示金额</dt><dd>{activeReview.displayAmount} {activeReview.symbol}</dd>
+                        <dt className="text-muted-foreground">最小单位</dt><dd className="break-all font-mono">{activeReview.kind === 'native' ? activeReview.value.toString() : activeReview.amount.toString()}</dd>
+                        <dt className="text-muted-foreground">可用余额</dt><dd>{activeReview.kind === 'native' ? formatEther(activeReview.balance) : formatUnits(activeReview.balance, activeReview.decimals)} {activeReview.symbol}</dd>
+                        {activeReview.kind === 'erc20' && <><dt className="text-muted-foreground">代币合约</dt><dd className="break-all font-mono">{activeReview.tokenAddress}</dd></>}
+                        {activeReview.kind === 'native' && <><dt className="text-muted-foreground">Gas 预算上限</dt><dd>{formatEther(activeReview.gasCostLimit)} ETH</dd></>}
+                    </dl>
+                    <div className="flex gap-2">
+                        <Button variant="outline" onClick={() => setReview(null)} disabled={isTransferBusy || isSendBusy}>返回修改</Button>
+                        <Button
+                            onClick={activeReview.kind === 'native' ? confirmNativeTransfer : confirmErc20Transfer}
+                            disabled={isTransferBusy || isSendBusy}
+                        >确认并打开钱包</Button>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }

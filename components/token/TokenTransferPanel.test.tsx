@@ -110,7 +110,11 @@ describe('TokenTransferPanel pending transactions', () => {
 
     fireEvent.change(screen.getByLabelText('ERC-20 收款地址'), { target: { value: '0x8F7b86Fe8f1a5CaB00Aa66cBb3E3BBF6a79535EE' } })
     fireEvent.change(screen.getByLabelText('USDC 数量'), { target: { value: '1.25' } })
-    fireEvent.click(screen.getByRole('button', { name: '转账' }))
+    fireEvent.click(screen.getByRole('button', { name: '预览 ERC-20 转账' }))
+    expect(mocks.writeContract).not.toHaveBeenCalled()
+    expect(screen.getByText('1.25 USDC')).toBeInTheDocument()
+    expect(screen.getByText('1250000')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '确认并打开钱包' }))
 
     await waitFor(() => expect(localStorage.getItem(storageKey('erc20-transfer'))).toContain(TRANSFER_HASH))
     expect(screen.getByText('链上确认中…')).toBeInTheDocument()
@@ -128,7 +132,7 @@ describe('TokenTransferPanel pending transactions', () => {
     fireEvent.change(screen.getByLabelText('USDC 数量'), { target: { value: '0.0000001' } })
 
     expect(screen.getByText('请输入最多 6 位小数的正数')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '转账' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '预览 ERC-20 转账' })).toBeDisabled()
     expect(mocks.writeContract).not.toHaveBeenCalled()
   })
 
@@ -139,7 +143,7 @@ describe('TokenTransferPanel pending transactions', () => {
     fireEvent.change(screen.getByLabelText('USDC 数量'), { target: { value: '1.500001' } })
 
     expect(screen.getByText('余额不足，当前可用 1.5 USDC')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '转账' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '预览 ERC-20 转账' })).toBeDisabled()
     expect(mocks.writeContract).not.toHaveBeenCalled()
   })
 
@@ -149,7 +153,11 @@ describe('TokenTransferPanel pending transactions', () => {
 
     fireEvent.change(screen.getByLabelText('ETH 收款地址'), { target: { value: '0x8F7b86Fe8f1a5CaB00Aa66cBb3E3BBF6a79535EE' } })
     fireEvent.change(screen.getByLabelText('ETH 数量'), { target: { value: '0.0001' } })
-    fireEvent.click(screen.getByRole('button', { name: '发送ETH' }))
+    fireEvent.click(screen.getByRole('button', { name: '预览 ETH 转账' }))
+    expect(mocks.sendTransaction).not.toHaveBeenCalled()
+    expect(screen.getByText('0.0001 ETH')).toBeInTheDocument()
+    expect(screen.getByText('100000000000000')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '确认并打开钱包' }))
 
     await waitFor(() => expect(localStorage.getItem(storageKey('native-transfer'))).toContain(SEND_HASH))
     expect(localStorage.getItem(storageKey('erc20-transfer'))).toBeNull()
@@ -167,7 +175,7 @@ describe('TokenTransferPanel pending transactions', () => {
 
     expect(screen.getByText('请输入有效的 EVM 地址')).toBeInTheDocument()
     expect(screen.getByText('转账数量必须大于 0')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '发送ETH' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '预览 ETH 转账' })).toBeDisabled()
     expect(mocks.sendTransaction).not.toHaveBeenCalled()
   })
 
@@ -180,7 +188,21 @@ describe('TokenTransferPanel pending transactions', () => {
 
     expect(screen.getByText('预留最高 Gas 成本: 0.000042 ETH')).toBeInTheDocument()
     expect(screen.getByText('ETH 余额不足，转账金额加 Gas 预算还差 0.000032 ETH')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '发送ETH' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '预览 ETH 转账' })).toBeDisabled()
+    expect(mocks.sendTransaction).not.toHaveBeenCalled()
+  })
+
+  it('discards a review snapshot when the editable input changes', () => {
+    render(<TokenTransferPanel />)
+
+    fireEvent.change(screen.getByLabelText('ETH 收款地址'), { target: { value: '0x8F7b86Fe8f1a5CaB00Aa66cBb3E3BBF6a79535EE' } })
+    fireEvent.change(screen.getByLabelText('ETH 数量'), { target: { value: '0.1' } })
+    fireEvent.click(screen.getByRole('button', { name: '预览 ETH 转账' }))
+    expect(screen.getByText('确认转账详情')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('ETH 数量'), { target: { value: '0.2' } })
+
+    expect(screen.queryByText('确认转账详情')).not.toBeInTheDocument()
     expect(mocks.sendTransaction).not.toHaveBeenCalled()
   })
 
