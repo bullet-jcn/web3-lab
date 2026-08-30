@@ -21,16 +21,17 @@ const mocks = vi.hoisted(() => ({
   sendTransaction: vi.fn(),
   refetchTokenBalance: vi.fn(),
   refetchNativeBalance: vi.fn(),
+  nativeBalance: BigInt('1000000000000000000'),
 }))
 
 vi.mock('wagmi', () => ({
   useConnection: () => ({ address: ACCOUNT }),
   useBalance: () => ({
-    data: { value: BigInt('1000000000000000000'), decimals: 18, symbol: 'ETH' },
+    data: { value: mocks.nativeBalance, decimals: 18, symbol: 'ETH' },
     error: null,
     refetch: mocks.refetchNativeBalance,
   }),
-  useEstimateGas: () => ({ data: BigInt(21_000), error: null }),
+  useEstimateGas: (options: { data?: string }) => ({ data: options.data ? BigInt(50_000) : BigInt(21_000), error: null }),
   useEstimateFeesPerGas: () => ({
     data: { maxFeePerGas: BigInt(2_000_000_000), maxPriorityFeePerGas: BigInt(1_000_000_000) },
     error: null,
@@ -92,6 +93,7 @@ describe('TokenTransferPanel pending transactions', () => {
     mocks.sendTransaction.mockReset()
     mocks.refetchTokenBalance.mockReset()
     mocks.refetchNativeBalance.mockReset()
+    mocks.nativeBalance = BigInt('1000000000000000000')
   })
 
   it('restores both transfer hashes and resumes receipt queries', async () => {
@@ -114,6 +116,8 @@ describe('TokenTransferPanel pending transactions', () => {
     expect(mocks.writeContract).not.toHaveBeenCalled()
     expect(screen.getByText('1.25 USDC')).toBeInTheDocument()
     expect(screen.getByText('1250000')).toBeInTheDocument()
+    expect(screen.getByText('Gas 预算上限')).toBeInTheDocument()
+    expect(screen.getByText('0.0001 ETH')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '确认并打开钱包' }))
 
     await waitFor(() => expect(localStorage.getItem(storageKey('erc20-transfer'))).toContain(TRANSFER_HASH))
@@ -143,6 +147,19 @@ describe('TokenTransferPanel pending transactions', () => {
     fireEvent.change(screen.getByLabelText('USDC 数量'), { target: { value: '1.500001' } })
 
     expect(screen.getByText('余额不足，当前可用 1.5 USDC')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '预览 ERC-20 转账' })).toBeDisabled()
+    expect(mocks.writeContract).not.toHaveBeenCalled()
+  })
+
+  it('blocks ERC-20 review when ETH cannot cover contract-call gas', () => {
+    mocks.nativeBalance = BigInt('50000000000000')
+    render(<TokenTransferPanel />)
+
+    fireEvent.change(screen.getByLabelText('ERC-20 收款地址'), { target: { value: '0x8F7b86Fe8f1a5CaB00Aa66cBb3E3BBF6a79535EE' } })
+    fireEvent.change(screen.getByLabelText('USDC 数量'), { target: { value: '1' } })
+
+    expect(screen.getByText('ERC-20 预留最高 Gas 成本: 0.0001 ETH')).toBeInTheDocument()
+    expect(screen.getByText('ETH 不足以支付 ERC-20 Gas，预算还差 0.00005 ETH')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '预览 ERC-20 转账' })).toBeDisabled()
     expect(mocks.writeContract).not.toHaveBeenCalled()
   })
@@ -214,6 +231,7 @@ describe('TokenTransferPanel pending transactions', () => {
     expect(await screen.findByText('转账成功!')).toBeInTheDocument()
     await waitFor(() => expect(localStorage.getItem(storageKey('erc20-transfer'))).toBeNull())
     expect(mocks.refetchTokenBalance).toHaveBeenCalled()
+    expect(mocks.refetchNativeBalance).toHaveBeenCalled()
   })
 
   it('refreshes native balance after a restored send confirms', async () => {

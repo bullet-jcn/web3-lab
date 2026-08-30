@@ -2,7 +2,7 @@
 
 import { getErrorMessage } from "@/lib/errors";
 import { DEMO_ERC20_ADDRESS } from "@/lib/constants";
-import { erc20Abi, formatEther, formatUnits, type Hash, type ReplacementReason } from "viem";
+import { encodeFunctionData, erc20Abi, formatEther, formatUnits, type Hash, type ReplacementReason } from "viem";
 import { useEffect, useState } from "react";
 import { useBalance, useConnection, useEstimateFeesPerGas, useEstimateGas, useReadContract, useSendTransaction, useSimulateContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
 import { Button } from "@/components/ui/button";
@@ -53,17 +53,6 @@ export function TokenTransferPanel() {
         value: nativeTransferInput.ok ? nativeTransferInput.value : undefined,
         query: { enabled: isNativeRequestReady },
     })
-    const { data: nativeFees, error: nativeFeesError } = useEstimateFeesPerGas({
-        chainId: writeChain.id,
-        type: 'eip1559',
-        query: { enabled: isNativeRequestReady },
-    })
-    const nativeTransferBudget = resolveNativeTransferBudget({
-        value: nativeTransferInput.ok ? nativeTransferInput.value : undefined,
-        balance: nativeBalance?.value,
-        gas: estimatedNativeGas,
-        maxFeePerGas: nativeFees?.maxFeePerGas,
-    })
     const [erc20Recipient, setErc20Recipient] = useState('')
     const [erc20Amount, setErc20Amount] = useState('')
 
@@ -86,6 +75,38 @@ export function TokenTransferPanel() {
         ? rawTokenSymbol
         : 'ERC-20'
     const erc20TransferInput = parseErc20TransferInput(erc20Recipient, erc20Amount, tokenDecimals)
+    const isErc20RequestReady = !!address && isCorrectChain && erc20TransferInput.ok
+    const erc20CallData = erc20TransferInput.ok
+        ? encodeFunctionData({
+            abi: erc20Abi,
+            functionName: 'transfer',
+            args: [erc20TransferInput.recipient, erc20TransferInput.amount],
+        })
+        : undefined
+    const { data: estimatedErc20Gas, error: erc20GasError } = useEstimateGas({
+        account: address,
+        chainId: writeChain.id,
+        to: DEMO_ERC20_ADDRESS,
+        data: erc20CallData,
+        query: { enabled: isErc20RequestReady },
+    })
+    const { data: feeEstimate, error: feesError } = useEstimateFeesPerGas({
+        chainId: writeChain.id,
+        type: 'eip1559',
+        query: { enabled: isNativeRequestReady || isErc20RequestReady },
+    })
+    const nativeTransferBudget = resolveNativeTransferBudget({
+        value: nativeTransferInput.ok ? nativeTransferInput.value : undefined,
+        balance: nativeBalance?.value,
+        gas: estimatedNativeGas,
+        maxFeePerGas: feeEstimate?.maxFeePerGas,
+    })
+    const erc20GasBudget = resolveNativeTransferBudget({
+        value: BigInt(0),
+        balance: nativeBalance?.value,
+        gas: estimatedErc20Gas,
+        maxFeePerGas: feeEstimate?.maxFeePerGas,
+    })
 
     const { data: tokenBalance, error: tokenBalanceError, refetch: refetchTokenBalance } = useReadContract({
         address: DEMO_ERC20_ADDRESS,
@@ -115,7 +136,12 @@ export function TokenTransferPanel() {
                 && nativeTransferBudget.gasCostLimit === review.gasCostLimit
                 ? review
                 : null
-            : tokenBalance === review.balance && tokenDecimals === review.decimals && !simulateError
+            : tokenBalance === review.balance
+                && tokenDecimals === review.decimals
+                && nativeBalance?.value === review.nativeBalance
+                && erc20GasBudget.state === 'sufficient'
+                && erc20GasBudget.gasCostLimit === review.gasCostLimit
+                && !simulateError
                 ? review
                 : null
 
@@ -191,7 +217,8 @@ export function TokenTransferPanel() {
         if (!isTransferConfirmed || !address || !chainId || !transferHash) return
         clearPendingTransaction(window.localStorage, { account: address, chainId, kind: 'erc20-transfer' })
         void refetchTokenBalance()
-    }, [address, chainId, isTransferConfirmed, refetchTokenBalance, transferHash])
+        void refetchNativeBalance()
+    }, [address, chainId, isTransferConfirmed, refetchNativeBalance, refetchTokenBalance, transferHash])
 
     useEffect(() => {
         if (!isSendConfirmed || !address || !chainId || !sendHash) return
@@ -217,7 +244,7 @@ export function TokenTransferPanel() {
     }
 
     function openErc20Review() {
-        if (!reviewContextKey || !chainId || !isCorrectChain || !erc20TransferInput.ok || tokenBalanceState !== 'sufficient' || tokenBalance === undefined || tokenDecimals === undefined || simulateError) return
+        if (!reviewContextKey || !chainId || !isCorrectChain || !erc20TransferInput.ok || tokenBalanceState !== 'sufficient' || erc20GasBudget.state !== 'sufficient' || tokenBalance === undefined || tokenDecimals === undefined || nativeBalance === undefined || simulateError) return
         setReview(createTransferReview({
             kind: 'erc20',
             contextKey: reviewContextKey,
@@ -230,11 +257,13 @@ export function TokenTransferPanel() {
             displayAmount: erc20Amount.trim(),
             amount: erc20TransferInput.amount,
             balance: tokenBalance,
+            nativeBalance: nativeBalance.value,
+            gasCostLimit: erc20GasBudget.gasCostLimit,
         }))
     }
 
     function confirmErc20Transfer() {
-        if (!address || !isCorrectChain || activeReview?.kind !== 'erc20' || tokenBalance === undefined || activeReview.amount > tokenBalance) return
+        if (!address || !isCorrectChain || activeReview?.kind !== 'erc20' || tokenBalance === undefined || nativeBalance === undefined || activeReview.amount > tokenBalance || activeReview.gasCostLimit > nativeBalance.value) return
         setTransferReplacement(null)
         writeContract({
             address: activeReview.tokenAddress,
@@ -358,13 +387,21 @@ export function TokenTransferPanel() {
                     )}
                     {tokenDecimalsError && <p className="text-sm text-destructive">无法读取代币精度，已阻止转账</p>}
                     {tokenBalanceError && <p className="text-sm text-destructive">无法读取代币余额，已阻止转账</p>}
+                    {nativeBalanceError && <p className="text-sm text-destructive">无法读取 Gas 余额，已阻止 ERC-20 转账</p>}
+                    {(erc20GasError || feesError) && <p className="text-sm text-destructive">无法估算 ERC-20 Gas，已阻止转账</p>}
                     {erc20TransferInput.ok && tokenBalanceState === 'insufficient' && tokenBalance !== undefined && tokenDecimals !== undefined && (
                         <p className="text-sm text-destructive">
                             余额不足，当前可用 {formatUnits(tokenBalance, tokenDecimals)} {tokenSymbol}
                         </p>
                     )}
+                    {erc20GasBudget.state !== 'unavailable' && (
+                        <p className="text-sm text-muted-foreground">ERC-20 预留最高 Gas 成本: {formatEther(erc20GasBudget.gasCostLimit)} ETH</p>
+                    )}
+                    {erc20GasBudget.state === 'insufficient' && (
+                        <p className="text-sm text-destructive">ETH 不足以支付 ERC-20 Gas，预算还差 {formatEther(erc20GasBudget.shortfall)} ETH</p>
+                    )}
                 </div>
-                <Button className="w-full" onClick={openErc20Review} disabled={!address || !isCorrectChain || !erc20TransferInput.ok || tokenBalanceState !== 'sufficient' || !!simulateError || isTransferBusy}>
+                <Button className="w-full" onClick={openErc20Review} disabled={!address || !isCorrectChain || !erc20TransferInput.ok || tokenBalanceState !== 'sufficient' || erc20GasBudget.state !== 'sufficient' || !!simulateError || isTransferBusy}>
                     {transferState === 'awaiting-wallet' && '等待钱包确认…'}
                     {transferState === 'confirming' && '链上确认中…'}
                     {!isTransferBusy && '预览 ERC-20 转账'}
@@ -418,7 +455,7 @@ export function TokenTransferPanel() {
                         <p className="text-sm text-destructive">{nativeTransferInput.amountError}</p>
                     )}
                     {nativeBalanceError && <p className="text-sm text-destructive">无法读取 ETH 余额，已阻止转账</p>}
-                    {(nativeGasError || nativeFeesError) && <p className="text-sm text-destructive">无法估算 Gas 成本，已阻止转账</p>}
+                    {(nativeGasError || feesError) && <p className="text-sm text-destructive">无法估算 Gas 成本，已阻止转账</p>}
                     {nativeTransferBudget.state !== 'unavailable' && (
                         <p className="text-sm text-muted-foreground">
                             预留最高 Gas 成本: {formatEther(nativeTransferBudget.gasCostLimit)} ETH
@@ -457,8 +494,8 @@ export function TokenTransferPanel() {
                         <dt className="text-muted-foreground">显示金额</dt><dd>{activeReview.displayAmount} {activeReview.symbol}</dd>
                         <dt className="text-muted-foreground">最小单位</dt><dd className="break-all font-mono">{activeReview.kind === 'native' ? activeReview.value.toString() : activeReview.amount.toString()}</dd>
                         <dt className="text-muted-foreground">可用余额</dt><dd>{activeReview.kind === 'native' ? formatEther(activeReview.balance) : formatUnits(activeReview.balance, activeReview.decimals)} {activeReview.symbol}</dd>
-                        {activeReview.kind === 'erc20' && <><dt className="text-muted-foreground">代币合约</dt><dd className="break-all font-mono">{activeReview.tokenAddress}</dd></>}
-                        {activeReview.kind === 'native' && <><dt className="text-muted-foreground">Gas 预算上限</dt><dd>{formatEther(activeReview.gasCostLimit)} ETH</dd></>}
+                        {activeReview.kind === 'erc20' && <><dt className="text-muted-foreground">代币合约</dt><dd className="break-all font-mono">{activeReview.tokenAddress}</dd><dt className="text-muted-foreground">Gas 支付余额</dt><dd>{formatEther(activeReview.nativeBalance)} ETH</dd></>}
+                        <dt className="text-muted-foreground">Gas 预算上限</dt><dd>{formatEther(activeReview.gasCostLimit)} ETH</dd>
                     </dl>
                     <div className="flex gap-2">
                         <Button variant="outline" onClick={() => setReview(null)} disabled={isTransferBusy || isSendBusy}>返回修改</Button>

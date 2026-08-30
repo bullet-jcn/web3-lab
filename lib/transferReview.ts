@@ -6,13 +6,13 @@ interface ReviewBase {
   readonly chainName: string
   readonly recipient: Address
   readonly displayAmount: string
+  readonly gasCostLimit: bigint
 }
 
 export interface NativeTransferReview extends ReviewBase {
   readonly kind: 'native'
   readonly symbol: string
   readonly value: bigint
-  readonly gasCostLimit: bigint
   readonly balance: bigint
 }
 
@@ -23,6 +23,7 @@ export interface Erc20TransferReview extends ReviewBase {
   readonly decimals: number
   readonly amount: bigint
   readonly balance: bigint
+  readonly nativeBalance: bigint
 }
 
 export type TransferReview = NativeTransferReview | Erc20TransferReview
