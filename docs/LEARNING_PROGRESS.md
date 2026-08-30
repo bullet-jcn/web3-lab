@@ -38,10 +38,11 @@
 - ERC-20 转账已加入当前账户余额边界：余额未知或读取失败时 fail closed，解析后的最小单位金额超过余额时在钱包请求前阻止，成功 Receipt 后重新读取余额。
 - 原生 ETH 转账已加入余额与 EIP-1559 Gas 预算：读取当前账户余额、估算目标请求的 Gas 单位和 `maxFeePerGas`，只有 `value + gas × maxFeePerGas <= balance` 时才允许请求钱包，确认后刷新余额。
 - ETH 与 ERC-20 转账已加入钱包前 Review 快照：第一次操作只冻结并展示 chain、asset、recipient、显示金额、最小单位、余额以及适用的 Gas 预算，第二次确认才调用钱包；输入、账户、链、余额、模拟或 Gas 证据变化会使旧快照失效。
+- ERC-20 转账已加入原生 Gas 余额边界：用同一 `transfer(recipient, amount)` 编码 calldata 估算合约调用 Gas，只有 Token 余额和 ETH Gas 预算同时充足才允许 Review，并在 Review 中冻结 Gas 预算与 ETH 支付余额。
 
 ## 当前未提交业务文件
 
-无。转账 Review 快照已提交，当前仅更新本恢复文件。
+无。ERC-20 Gas 余额边界已提交，当前仅更新本恢复文件。
 
 `docs/PRODUCT_SPEC.md` 与 `docs/PRODUCTION_ROADMAP.md` 是此前已有的未跟踪产品文档，不属于当前业务步骤。
 
@@ -67,6 +68,7 @@
 - `3db8b05 feat: enforce ERC-20 balance limits`
 - `3688b65 feat: reserve native transfer gas`
 - `f6b1b50 feat: review transfer payloads before signing`
+- `55b2ed7 feat: reserve gas for ERC-20 transfers`
 
 ## 当前步骤的设计结论
 
@@ -114,9 +116,11 @@ ERC-20 余额比较只在输入已解析为整数最小单位且当前账户、�
 
 Review Screen 不是把当前表单再显示一次，而是创建运行时冻结的判别快照；确认 handler 直接使用快照中的链上整数 payload，不重新解析可编辑输入。任何输入修改都会清除快照，账户/链上下文变化也会异步废弃；余额、token decimals、模拟结果或原生 Gas 预算变化时旧快照不再可确认。这样用户看到的 evidence 与交给钱包的 recipient/value/amount 保持同一版本，同时仍要求用户在钱包内做最终核对。
 
+ERC-20 余额和 Gas 余额属于不同资产边界：`balanceOf` 足够只证明 Token 能转，账户还必须有原生 ETH 支付合约调用。Gas estimate 使用与模拟/钱包请求相同的 recipient 与最小单位 amount 编码 calldata，结合 EIP-1559 `maxFeePerGas` 得到预算；余额或预算变化会使 Review 失效。ERC-20 成功 Receipt 后同时刷新 Token 余额与 ETH 余额，因为前者发生资产转移，后者支付了 Gas。
+
 ## 下一步
 
-估算 ERC-20 `transfer` 的 Gas，并用原生 ETH 余额覆盖该预算；只有 token 余额与 Gas 余额同时充足才允许生成 ERC-20 Review。学习复盘待恢复时从“授权风险与 AI 边界”继续。
+把固定 ERC-20 合约升级为按 chainId 定义的受支持资产 Registry 与选择器；不直接接受任意 symbol 或未经验证的任意合约地址。学习复盘待恢复时从“授权风险与 AI 边界”继续。
 
 ## 工作约束
 
