@@ -2,9 +2,9 @@
 
 import { getErrorMessage } from "@/lib/errors";
 import { DEMO_ERC20_ADDRESS } from "@/lib/constants";
-import { erc20Abi, formatUnits, type Hash, type ReplacementReason } from "viem";
+import { erc20Abi, formatEther, formatUnits, type Hash, type ReplacementReason } from "viem";
 import { useEffect, useState } from "react";
-import { useConnection, useReadContract, useSendTransaction, useSimulateContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
+import { useBalance, useConnection, useEstimateFeesPerGas, useEstimateGas, useReadContract, useSendTransaction, useSimulateContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
 import { Button } from "@/components/ui/button";
 import { useWriteChainGuard } from "@/lib/hooks/useWriteChainGuard";
 import { getReplacementMessage, resolveTransactionState } from "@/lib/transactionState";
@@ -13,6 +13,7 @@ import { parseNativeTransferInput } from "@/lib/nativeTransferInput";
 import { Input } from "@/components/ui/input";
 import { parseErc20TransferInput } from "@/lib/erc20TransferInput";
 import { resolveTokenBalanceState } from "@/lib/tokenBalance";
+import { resolveNativeTransferBudget } from "@/lib/nativeTransferBudget";
 
 interface ReplacementInfo {
     reason: ReplacementReason
@@ -36,6 +37,30 @@ export function TokenTransferPanel() {
     const [nativeRecipient, setNativeRecipient] = useState('')
     const [nativeAmount, setNativeAmount] = useState('')
     const nativeTransferInput = parseNativeTransferInput(nativeRecipient, nativeAmount)
+    const isNativeRequestReady = !!address && isCorrectChain && nativeTransferInput.ok
+    const { data: nativeBalance, error: nativeBalanceError, refetch: refetchNativeBalance } = useBalance({
+        address,
+        chainId: writeChain.id,
+        query: { enabled: !!address && isCorrectChain },
+    })
+    const { data: estimatedNativeGas, error: nativeGasError } = useEstimateGas({
+        account: address,
+        chainId: writeChain.id,
+        to: nativeTransferInput.ok ? nativeTransferInput.recipient : undefined,
+        value: nativeTransferInput.ok ? nativeTransferInput.value : undefined,
+        query: { enabled: isNativeRequestReady },
+    })
+    const { data: nativeFees, error: nativeFeesError } = useEstimateFeesPerGas({
+        chainId: writeChain.id,
+        type: 'eip1559',
+        query: { enabled: isNativeRequestReady },
+    })
+    const nativeTransferBudget = resolveNativeTransferBudget({
+        value: nativeTransferInput.ok ? nativeTransferInput.value : undefined,
+        balance: nativeBalance?.value,
+        gas: estimatedNativeGas,
+        maxFeePerGas: nativeFees?.maxFeePerGas,
+    })
     const [erc20Recipient, setErc20Recipient] = useState('')
     const [erc20Amount, setErc20Amount] = useState('')
 
@@ -150,7 +175,8 @@ export function TokenTransferPanel() {
     useEffect(() => {
         if (!isSendConfirmed || !address || !chainId || !sendHash) return
         clearPendingTransaction(window.localStorage, { account: address, chainId, kind: 'native-transfer' })
-    }, [address, chainId, isSendConfirmed, sendHash])
+        void refetchNativeBalance()
+    }, [address, chainId, isSendConfirmed, refetchNativeBalance, sendHash])
 
     function trackSubmittedTransaction(kind: PendingTransactionKind, contextKey: string | null, hash: Hash, setTracked: (value: TrackedTransaction) => void) {
         if (!address || !chainId || !contextKey) return
@@ -183,7 +209,7 @@ export function TokenTransferPanel() {
     }
 
     function handleSendETH() {
-        if (!address || !isCorrectChain || !nativeTransferInput.ok) return
+        if (!address || !isCorrectChain || !nativeTransferInput.ok || nativeTransferBudget.state !== 'sufficient') return
         setSendReplacement(null)
         sendTransaction({
             to: nativeTransferInput.recipient,
@@ -299,6 +325,9 @@ export function TokenTransferPanel() {
             </div>
 
             <div className="space-y-2 border-t border-gray-200 pt-4 dark:border-neutral-800">
+                <p className="text-sm text-gray-500 dark:text-neutral-400">
+                    {nativeBalance ? `ETH 余额: ${formatEther(nativeBalance.value)}` : '正在读取 ETH 余额…'}
+                </p>
                 <div className="space-y-1">
                     <label className="text-sm font-medium" htmlFor="native-recipient">ETH 收款地址</label>
                     <Input
@@ -328,8 +357,20 @@ export function TokenTransferPanel() {
                     {!!nativeAmount && !nativeTransferInput.ok && nativeTransferInput.amountError && (
                         <p className="text-sm text-destructive">{nativeTransferInput.amountError}</p>
                     )}
+                    {nativeBalanceError && <p className="text-sm text-destructive">无法读取 ETH 余额，已阻止转账</p>}
+                    {(nativeGasError || nativeFeesError) && <p className="text-sm text-destructive">无法估算 Gas 成本，已阻止转账</p>}
+                    {nativeTransferBudget.state !== 'unavailable' && (
+                        <p className="text-sm text-muted-foreground">
+                            预留最高 Gas 成本: {formatEther(nativeTransferBudget.gasCostLimit)} ETH
+                        </p>
+                    )}
+                    {nativeTransferBudget.state === 'insufficient' && (
+                        <p className="text-sm text-destructive">
+                            ETH 余额不足，转账金额加 Gas 预算还差 {formatEther(nativeTransferBudget.shortfall)} ETH
+                        </p>
+                    )}
                 </div>
-                <Button className="w-full" variant="outline" onClick={handleSendETH} disabled={!address || !isCorrectChain || !nativeTransferInput.ok || isSendBusy}>
+                <Button className="w-full" variant="outline" onClick={handleSendETH} disabled={!address || !isCorrectChain || !nativeTransferInput.ok || nativeTransferBudget.state !== 'sufficient' || isSendBusy}>
                     {sendState === 'awaiting-wallet' && '等待钱包确认…'}
                     {sendState === 'confirming' && '链上确认中…'}
                     {!isSendBusy && '发送ETH'}

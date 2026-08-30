@@ -20,10 +20,21 @@ const mocks = vi.hoisted(() => ({
   writeContract: vi.fn(),
   sendTransaction: vi.fn(),
   refetchTokenBalance: vi.fn(),
+  refetchNativeBalance: vi.fn(),
 }))
 
 vi.mock('wagmi', () => ({
   useConnection: () => ({ address: ACCOUNT }),
+  useBalance: () => ({
+    data: { value: BigInt('1000000000000000000'), decimals: 18, symbol: 'ETH' },
+    error: null,
+    refetch: mocks.refetchNativeBalance,
+  }),
+  useEstimateGas: () => ({ data: BigInt(21_000), error: null }),
+  useEstimateFeesPerGas: () => ({
+    data: { maxFeePerGas: BigInt(2_000_000_000), maxPriorityFeePerGas: BigInt(1_000_000_000) },
+    error: null,
+  }),
   useReadContract: (options: { functionName: string }) => ({
     data: options.functionName === 'decimals'
       ? 6
@@ -80,6 +91,7 @@ describe('TokenTransferPanel pending transactions', () => {
     mocks.writeContract.mockReset()
     mocks.sendTransaction.mockReset()
     mocks.refetchTokenBalance.mockReset()
+    mocks.refetchNativeBalance.mockReset()
   })
 
   it('restores both transfer hashes and resumes receipt queries', async () => {
@@ -159,6 +171,19 @@ describe('TokenTransferPanel pending transactions', () => {
     expect(mocks.sendTransaction).not.toHaveBeenCalled()
   })
 
+  it('reserves max gas cost before allowing a native transfer', () => {
+    render(<TokenTransferPanel />)
+
+    expect(screen.getByText('ETH 余额: 1')).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('ETH 收款地址'), { target: { value: '0x8F7b86Fe8f1a5CaB00Aa66cBb3E3BBF6a79535EE' } })
+    fireEvent.change(screen.getByLabelText('ETH 数量'), { target: { value: '0.99999' } })
+
+    expect(screen.getByText('预留最高 Gas 成本: 0.000042 ETH')).toBeInTheDocument()
+    expect(screen.getByText('ETH 余额不足，转账金额加 Gas 预算还差 0.000032 ETH')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '发送ETH' })).toBeDisabled()
+    expect(mocks.sendTransaction).not.toHaveBeenCalled()
+  })
+
   it('clears a restored transaction after confirmation', async () => {
     seedPending('erc20-transfer', TRANSFER_HASH)
     mocks.confirmedHashes.add(TRANSFER_HASH)
@@ -167,6 +192,16 @@ describe('TokenTransferPanel pending transactions', () => {
     expect(await screen.findByText('转账成功!')).toBeInTheDocument()
     await waitFor(() => expect(localStorage.getItem(storageKey('erc20-transfer'))).toBeNull())
     expect(mocks.refetchTokenBalance).toHaveBeenCalled()
+  })
+
+  it('refreshes native balance after a restored send confirms', async () => {
+    seedPending('native-transfer', SEND_HASH)
+    mocks.confirmedHashes.add(SEND_HASH)
+    render(<TokenTransferPanel />)
+
+    expect(await screen.findByText('发送成功!')).toBeInTheDocument()
+    await waitFor(() => expect(localStorage.getItem(storageKey('native-transfer'))).toBeNull())
+    expect(mocks.refetchNativeBalance).toHaveBeenCalled()
   })
 
   it('clears storage and removes success when the original transfer is cancelled', async () => {
