@@ -35,10 +35,11 @@
 - Milestone 2 / Batch C 已启动：原生 ETH 转账不再使用固定收款人和金额，新增确定性的地址与 18 位精度金额解析，在钱包请求前拒绝非法地址、零地址、非正数和不可精确表示的输入。
 - ERC-20 转账已改为用户输入收款人和人类可读金额：从目标链合约读取 `decimals`/`symbol`，按真实精度转换为最小单位，拒绝超精度、零地址、非正数和 uint256 溢出，并将原始余额格式化为代币单位展示。
 - 学习复盘已完成至 EIP-5792：已经复习钱包连接与 SIWE 身份、chain/network、交易 hash/receipt 生命周期、replacement/revert/partial success、待确认状态持久化和原子/顺序批量语义。
+- ERC-20 转账已加入当前账户余额边界：余额未知或读取失败时 fail closed，解析后的最小单位金额超过余额时在钱包请求前阻止，成功 Receipt 后重新读取余额。
 
 ## 当前未提交业务文件
 
-无。ERC-20 metadata/decimals 输入切片已提交，当前仅更新本恢复文件。
+无。ERC-20 余额边界已提交，当前仅更新本恢复文件。
 
 `docs/PRODUCT_SPEC.md` 与 `docs/PRODUCTION_ROADMAP.md` 是此前已有的未跟踪产品文档，不属于当前业务步骤。
 
@@ -61,6 +62,7 @@
 - `e7d8a2f fix: close milestone one security gaps`
 - `171beb9 feat: validate native transfer input`
 - `0ae417b feat: parse ERC-20 transfer amounts`
+- `3db8b05 feat: enforce ERC-20 balance limits`
 
 ## 当前步骤的设计结论
 
@@ -102,9 +104,11 @@ Batch C 首个切片只替换原生 ETH 的固定输入，不同时改 ERC-20、
 
 ERC-20 金额不能假设 18 位精度：本轮先读取当前写链上固定代币合约的 `decimals()`，再用 `parseUnits` 将用户字符串转换为整数最小单位；0-decimal 代币不接受小数，结果还必须落在 uint256 范围内。`symbol()` 属于合约提供的不可信展示 metadata，因此只接受 1–12 个可打印 ASCII 字符，异常时退回 `ERC-20`，绝不让 symbol 决定合约地址、精度或交易参数。模拟与钱包请求复用同一个已解析 payload，避免 UI 展示值和实际发送值分叉。
 
+ERC-20 余额比较只在输入已解析为整数最小单位且当前账户、目标链、目标代币的 `balanceOf` 已返回时才允许通过；余额未知不是“暂时假定够用”，而是不可发送。余额检查改善错误反馈但不是并发保证：检查后余额仍可能被其他交易改变，因此合约模拟和最终 Receipt 继续作为后续防线。成功 Receipt 会触发余额重新读取，避免 UI 长期展示提交前缓存。
+
 ## 下一步
 
-复用已解析的整数金额接入 ERC-20 余额与不足额校验，再处理原生 ETH 余额和 Gas 预留。学习复盘待恢复时从“授权风险与 AI 边界”继续。
+读取原生 ETH 余额并设计“转账 value + Gas 成本”的可发送边界，不能简单用 `value <= balance`；学习复盘待恢复时从“授权风险与 AI 边界”继续。
 
 ## 工作约束
 
