@@ -36,10 +36,11 @@
 - ERC-20 转账已改为用户输入收款人和人类可读金额：从目标链合约读取 `decimals`/`symbol`，按真实精度转换为最小单位，拒绝超精度、零地址、非正数和 uint256 溢出，并将原始余额格式化为代币单位展示。
 - 学习复盘已完成至 EIP-5792：已经复习钱包连接与 SIWE 身份、chain/network、交易 hash/receipt 生命周期、replacement/revert/partial success、待确认状态持久化和原子/顺序批量语义。
 - ERC-20 转账已加入当前账户余额边界：余额未知或读取失败时 fail closed，解析后的最小单位金额超过余额时在钱包请求前阻止，成功 Receipt 后重新读取余额。
+- 原生 ETH 转账已加入余额与 EIP-1559 Gas 预算：读取当前账户余额、估算目标请求的 Gas 单位和 `maxFeePerGas`，只有 `value + gas × maxFeePerGas <= balance` 时才允许请求钱包，确认后刷新余额。
 
 ## 当前未提交业务文件
 
-无。ERC-20 余额边界已提交，当前仅更新本恢复文件。
+无。原生 ETH 余额与 Gas 预算已提交，当前仅更新本恢复文件。
 
 `docs/PRODUCT_SPEC.md` 与 `docs/PRODUCTION_ROADMAP.md` 是此前已有的未跟踪产品文档，不属于当前业务步骤。
 
@@ -63,6 +64,7 @@
 - `171beb9 feat: validate native transfer input`
 - `0ae417b feat: parse ERC-20 transfer amounts`
 - `3db8b05 feat: enforce ERC-20 balance limits`
+- `3688b65 feat: reserve native transfer gas`
 
 ## 当前步骤的设计结论
 
@@ -106,9 +108,11 @@ ERC-20 金额不能假设 18 位精度：本轮先读取当前写链上固定代
 
 ERC-20 余额比较只在输入已解析为整数最小单位且当前账户、目标链、目标代币的 `balanceOf` 已返回时才允许通过；余额未知不是“暂时假定够用”，而是不可发送。余额检查改善错误反馈但不是并发保证：检查后余额仍可能被其他交易改变，因此合约模拟和最终 Receipt 继续作为后续防线。成功 Receipt 会触发余额重新读取，避免 UI 长期展示提交前缓存。
 
+原生 ETH 余额不能只比较 `value <= balance`，因为同一余额还要支付 Gas。本轮使用当前请求的 `estimateGas` 与 EIP-1559 `maxFeePerGas` 计算保守预算上限，全部以 wei `bigint` 运算；余额、Gas 或 fee 任一未知/失败都禁止发送。该预算不是最终扣费保证：base fee、钱包参数和链上状态仍可能变化，最终费用由实际 `gasUsed × effectiveGasPrice` 决定，因此 UI 使用“预留最高 Gas 成本”措辞，Receipt 仍是最终证据。
+
 ## 下一步
 
-读取原生 ETH 余额并设计“转账 value + Gas 成本”的可发送边界，不能简单用 `value <= balance`；学习复盘待恢复时从“授权风险与 AI 边界”继续。
+设计转账 Review Screen，使 chain、asset、recipient、human amount、base-unit amount 和 Gas 预算在钱包弹窗前形成不可变快照；学习复盘待恢复时从“授权风险与 AI 边界”继续。
 
 ## 工作约束
 
