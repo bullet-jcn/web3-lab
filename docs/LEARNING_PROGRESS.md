@@ -41,17 +41,19 @@
 - ERC-20 转账已加入原生 Gas 余额边界：用同一 `transfer(recipient, amount)` 编码 calldata 估算合约调用 Gas，只有 Token 余额和 ETH Gas 预算同时充足才允许 Review，并在 Review 中冻结 Gas 预算与 ETH 支付余额。
 - 普通 ERC-20 转账已接入按 `chainId + assetId` 查询的受支持资产 Registry 与资产选择器：地址、symbol 和 decimals 由应用 allowlist 决定，链上 `decimals()` 只用于一致性校验；未知 selector、未知链或 metadata 不一致均 fail closed，Review 与钱包请求会再次绑定 Registry 资产。
 - 第一阶段学习复盘已完成，能够从身份、链、意图、执行、观察五个上下文解释架构，并区分单元、组件、Route 集成、生产构建证据及尚未覆盖的真实钱包/E2E/可观测性边界。
+- ERC-20 与原生 ETH 已加入确定性的“最大金额”操作：Token 直接格式化整数最小单位余额；ETH 使用有效收款地址的独立 1 wei Gas 探测，从余额扣除 `gas × maxFeePerGas` 后填入候选值，再由最终 payload 重新估算并经过 Review 边界。
 
 ## 当前未提交业务文件
 
-当前资产 Registry 切片停在 Review 边界，尚未提交：
+当前最大金额切片停在 Review 边界，尚未提交：
 
-- `lib/assetRegistry.ts`
-- `lib/assetRegistry.test.ts`
 - `components/token/TokenTransferPanel.tsx`
 - `components/token/TokenTransferPanel.test.tsx`
-- `lib/constants.ts`
-- `lib/transferReview.ts`
+- `lib/transferRecipient.ts`
+- `lib/nativeTransferInput.ts`
+- `lib/erc20TransferInput.ts`
+- `lib/nativeTransferBudget.ts`
+- `lib/nativeTransferBudget.test.ts`
 - `docs/LEARNING_PROGRESS.md`
 
 `docs/PRODUCT_SPEC.md` 与 `docs/PRODUCTION_ROADMAP.md` 是此前已有的未跟踪产品文档，不属于当前业务步骤。
@@ -79,6 +81,8 @@
 - `3688b65 feat: reserve native transfer gas`
 - `f6b1b50 feat: review transfer payloads before signing`
 - `55b2ed7 feat: reserve gas for ERC-20 transfers`
+- `a56b8a5 feat: register supported transfer assets`
+- `231533b docs: checkpoint supported asset registry`
 
 ## 当前步骤的设计结论
 
@@ -132,9 +136,15 @@ ERC-20 余额和 Gas 余额属于不同资产边界：`balanceOf` 足够只证�
 
 本切片最终验证为 27 个测试文件、166 项测试通过，TypeScript、ESLint、Diff 检查和 Next.js 16.2.9 生产构建通过。生产构建首次仅因沙箱无法下载 Google Geist 字体失败，联网重跑后成功。
 
+最大金额不是跳过校验的快捷发送。ERC-20 直接用 `formatUnits(balanceOf, Registry decimals)` 生成精确字符串，不进入 JavaScript 浮点数；余额为零、metadata 未验证或交易正在进行时按钮不可用。ETH 不能把完整余额作为 value：只有账户、目标链、余额、有效 checksum 收款地址、Gas estimate 与 EIP-1559 `maxFeePerGas` 都存在时，才计算 `balance - gasCostLimit`，且结果必须大于零。
+
+ETH 最大值使用独立的 1 wei 请求探测收款路径 Gas，不复用用户可能已经填得过大的金额，因此最大按钮仍能纠正超余额输入。它只产生候选表单值；填入后实际金额会触发另一条 `estimateGas`，余额、fee 或 Gas 变化仍会让预算不足并阻止 Review。收款地址校验已抽成 ETH/ERC-20 共用纯函数，确保 Gas 探测与最终 parser 使用同一 checksum/零地址规则。
+
+当前最大金额切片验证为 27 个测试文件、171 项测试通过，TypeScript、ESLint、Diff 检查和 Next.js 16.2.9 生产构建通过。
+
 ## 下一步
 
-本轮先 Review 资产 Registry 未提交 Diff；确认后分别提交业务代码和恢复文档。下一代码切片按 Milestone 2 路线图实现“最大金额”操作：ERC-20 使用精确最小单位余额，原生 ETH 必须扣除保守 Gas 预算，继续禁止浮点数和证据不足时的猜测。
+本轮先 Review 最大金额未提交 Diff；确认后分别提交业务代码和恢复文档。下一代码切片优先补交易 Hash 的区块浏览器证据链接，使 pending、成功和 replacement 状态都能跳转到统一 Chain Registry 对应的 Explorer。Milestone 2 尚未结束，后续仍需地址簿/剪贴板/ENS、重试体验、WalletConnect 与钱包选择；达到路线图退出条件时必须明确通知用户，再进入阶段 2 学习复盘。
 
 ## 工作约束
 
