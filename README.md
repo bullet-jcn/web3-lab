@@ -6,16 +6,16 @@ A Next.js + wagmi/viem dApp that goes past "connect wallet, show balance": Sign-
 
 ## Features 功能
 
-- **Wallet connect / multi-chain balances** — injected connector (MetaMask-compatible), Sepolia + Ethereum mainnet, chain switching, per-chain balance via `useQueries`.
-  钱包连接、多链余额（Sepolia + 以太坊主网），支持切链，用 `useQueries` 并行查询每条链。
+- **Wallet selection / multi-chain balances** — explicit injected-wallet or WalletConnect selection, honest connecting/reconnecting/rejection states, Sepolia + Ethereum mainnet switching, and per-chain balances via `useQueries`. WalletConnect is registered only when a public Reown project ID is configured.
+  钱包选择与多链余额——明确选择浏览器钱包或 WalletConnect，区分连接中、恢复中和拒绝状态；支持 Sepolia / Ethereum 切链，并用 `useQueries` 并行查询每条链。只有配置公开的 Reown project ID 后才注册 WalletConnect。
 - **Sign-In with Ethereum (EIP-4361)** — nonce issuance → wallet signature → server-side verification via `viem/siwe`, backed by a stateless HMAC-signed session cookie (no database).
   SIWE 登录——签发 nonce → 钱包签名 → 服务端用 `viem/siwe` 验证，会话是无数据库的 HMAC 签名 cookie。
 - **Session-gated watchlist** — add/remove watched addresses, persisted the same way as the session (signed cookie, scoped per address).
   登录后才能用的关注列表——增删关注地址，用同一套签名 cookie 机制持久化（按地址隔离）。
 - **EIP-5792 atomic batch transfer** — detects wallet capability via `useCapabilities`, submits two ERC20 transfers as one atomic `useSendCalls` batch when supported, and explicitly falls back to two sequential (non-atomic) transactions — with the UI stating plainly that a mid-sequence failure won't roll back the first transfer.
   EIP-5792 原子批量转账——用 `useCapabilities` 检测钱包能力，支持则把两笔 ERC20 转账合并成一次原子 `useSendCalls`；不支持则显式降级为两笔顺序交易，并在 UI 上明确说明"第二笔失败不会撤销第一笔"。
-- **ERC20 / native ETH transfer** — pre-flight `simulateContract` check before broadcasting, on-chain confirmation tracking, and human-readable error messages instead of raw RPC errors.
-  ERC20 / 原生 ETH 转账——广播前用 `simulateContract` 预检查，追踪链上确认状态，把原始 RPC 错误转成可读的中文提示。
+- **ERC20 / native ETH transfer** — validated address/ENS/address-book/clipboard input, decimal-safe amounts, balances and gas budgets, an exact review snapshot, receipt/replacement tracking across refreshes, and explorer evidence.
+  ERC20 / 原生 ETH 转账——校验地址、ENS、地址簿与剪贴板输入，按真实 decimals 处理金额，检查余额和 Gas；钱包前冻结精确 Review 快照，刷新后继续追踪回执/替换交易并提供区块浏览器证据。
 - **AI security copilot — pre-signature risk detection** — a deterministic, unit-tested function flags known-dangerous patterns (currently: unlimited ERC20 `approve`); an LLM only phrases the already-computed finding into a plain-language warning, never decides what's risky. Any flagged action requires an explicit "I understand the risk, proceed" confirmation before it's ever signed.
   AI 安全副驾驶——签名前风险检测——确定性、有单测覆盖的函数检测已知风险模式(目前:无限额度 ERC20 `approve`);LLM 只负责把已经算出来的结果转述成人话警告,不负责判断风险本身。任何被标记的操作都需要用户显式点"我已了解风险,继续"才会真正发起签名。
 
@@ -61,6 +61,7 @@ lib/
   chains.ts / rpc.ts / viemClient.ts / wagmiConfig.ts
   eip5792.ts           # 原子批量能力判断的归约函数
   riskCheck.ts         # 确定性风险检测规则（纯函数，AI 不参与判断）
+  walletConnection.ts  # WalletConnect 配置边界与连接错误归约
   errors.ts / constants.ts / format.ts
 ```
 
@@ -105,16 +106,16 @@ npm run test        # vitest run
 npm run test:watch  # vitest (watch mode)
 ```
 
-Covered: the signed-cookie primitive (round-trip, tampering, expiry, purpose isolation), SIWE sign-in verification (real offline-generated signatures via `viem/accounts`, covering nonce/domain/signature rejection paths), watchlist business logic (add/remove/duplicate/limit), the EIP-5792 capability reducer, error-message mapping, the multi-chain balance hook, and the deterministic risk-detection rule (`lib/riskCheck.ts`). `.github/workflows/ci.yml` runs lint + typecheck + test on every push/PR — no secrets required, since every secret (`AUTH_COOKIE_SECRET`, the Alchemy key, `GEMINI_API_KEY`) is read lazily at call time, not asserted at module load.
+Covered: signed-cookie and SIWE boundaries, watchlist behavior, EIP-5792 capability/lifecycle reduction, pending transaction and batch recovery, transfer parsing/balances/gas/review/replacement flows, address book/clipboard/ENS races, wallet selection and WalletConnect failure states, multi-chain balances, API-origin/schema protection, and deterministic risk rules. The suite combines pure unit tests with hook and component tests. `.github/workflows/ci.yml` runs lint + typecheck + test on every push/PR; WalletConnect stays visibly unavailable when its public project ID is absent.
 
-覆盖范围:签名 cookie 原语(往返、篡改、过期、purpose 隔离)、SIWE 登录验证(用 `viem/accounts` 离线生成真实签名,覆盖 nonce/domain/签名各种拒绝场景)、关注列表业务逻辑(增删、去重、上限)、EIP-5792 能力归约函数、错误信息映射、多链余额 hook、以及确定性风险检测规则(`lib/riskCheck.ts`)。`.github/workflows/ci.yml` 在每次 push/PR 上跑 lint + typecheck + test,不需要配置任何 secret——因为所有 secret(`AUTH_COOKIE_SECRET`、Alchemy key、`GEMINI_API_KEY`)都是调用时才惰性读取,不是模块加载时就断言存在。
+覆盖范围包括签名 cookie / SIWE 边界、关注列表、EIP-5792 能力与生命周期、待确认交易和批次恢复、转账解析/余额/Gas/Review/替换、地址簿/剪贴板/ENS 异步竞态、钱包选择与 WalletConnect 失败状态、多链余额、API Origin/schema 防护以及确定性风险规则；同时包含纯函数、Hook 与组件测试。`.github/workflows/ci.yml` 在每次 push/PR 上运行 lint、typecheck 和 test；缺少公开 project ID 时 WalletConnect 会明确保持不可用。
 
 ## Known limitations 已知局限
 
 - The EIP-5792 atomic path hasn't been manually verified end-to-end against a real atomic-capable wallet yet (only the sequential fallback path has been exercised live) — it's covered by unit tests on the capability-reducing logic, not a live atomic transaction.
   EIP-5792 的原子路径还没有用真实支持原子批量的钱包完整手动测过(目前实际连过的只有顺序降级路径)——单测覆盖的是能力判断的归约逻辑,不是一次真实的原子交易。
-- No mocking (`vi.mock`) or component-level Testing Library examples yet (`render`/`screen`/`userEvent`) — every test so far is against pure functions designed to avoid needing mocks in the first place.
-  目前还没有用到 mock(`vi.mock`)或者组件级的 Testing Library 测试(`render`/`screen`/`userEvent`)——目前所有测试测的都是刻意设计成不需要 mock 的纯函数。
+- The WalletConnect connector and selection/failure states are covered by component tests and production builds, but a real QR pairing still requires a project-specific Reown ID and manual mobile-wallet evidence; this repository does not claim that live pairing evidence yet.
+  WalletConnect connector、选择和失败状态已有组件测试及生产构建证据，但真实二维码配对仍需要项目自己的 Reown ID 和移动钱包手动证据；仓库目前不声称已经完成这项真实配对验证。
 - Watchlist is capped at 20 addresses by the ~4KB cookie size limit, and there's no way to revoke a session before it expires other than rotating `AUTH_COOKIE_SECRET` (which invalidates every session at once).
   关注列表因为 cookie ~4KB 的大小限制,上限是 20 个地址;而且没法只撤销某一个 session,除非轮换 `AUTH_COOKIE_SECRET`(会让所有 session 一起失效)。
 - Only one risk rule is implemented so far (unlimited ERC20 `approve`) — an intentionally narrow, honestly-scoped MVP, not a claim of comprehensive risk coverage. Adding a new rule means adding a new case to `assessRisk()`; the AI-phrasing layer needs no changes.
@@ -134,6 +135,7 @@ Covered: the signed-cookie primitive (round-trip, tampering, expiry, purpose iso
 1. Create `.env.local` (gitignored)：
    ```
    NEXT_PUBLIC_ALCHEMY_API_KEY=your-alchemy-api-key
+   NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=your-walletconnect-project-id  # optional; from cloud.reown.com
    AUTH_COOKIE_SECRET=$(openssl rand -base64 32)
    GEMINI_API_KEY=your-gemini-api-key   # optional — only needed for the AI risk copilot; free, no card required, at aistudio.google.com/apikey
    ```
@@ -142,7 +144,7 @@ Covered: the signed-cookie primitive (round-trip, tampering, expiry, purpose iso
    npm install
    npm run dev
    ```
-3. Open [http://localhost:3000](http://localhost:3000) — needs a browser wallet extension (MetaMask-compatible) switched to Sepolia. 需要浏览器安装钱包扩展并切换到 Sepolia 测试网。
+3. Open [http://localhost:3000](http://localhost:3000), choose an injected wallet or configured WalletConnect, then switch to Sepolia for write-path testing. 打开页面后选择浏览器钱包或已配置的 WalletConnect，再切换到 Sepolia 测试写路径。
 
 ## Roadmap
 
@@ -154,6 +156,6 @@ Covered: the signed-cookie primitive (round-trip, tampering, expiry, purpose iso
 - [x] ERC20 / native ETH transfer with pre-flight simulation 带预检查的 ERC20/ETH 转账
 - [x] Unit tests + CI 单元测试 + CI
 - [x] AI security copilot: deterministic pre-signature risk detection + LLM phrasing AI 安全副驾驶:签名前确定性风险检测 + LLM 转述
-- [ ] Mocking + component-level tests mock 与组件级测试
+- [x] Mocking + component-level tests mock 与组件级测试
 - [ ] Manual end-to-end verification of the atomic EIP-5792 path 原子路径的真实端到端验证
-- [ ] WalletConnect for mobile wallets 接入 WalletConnect,支持移动端钱包
+- [x] WalletConnect connector + wallet selection WalletConnect connector 与钱包选择
