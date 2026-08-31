@@ -43,16 +43,14 @@
 - 第一阶段学习复盘已完成，能够从身份、链、意图、执行、观察五个上下文解释架构，并区分单元、组件、Route 集成、生产构建证据及尚未覆盖的真实钱包/E2E/可观测性边界。
 - ERC-20 与原生 ETH 已加入确定性的“最大金额”操作：Token 直接格式化整数最小单位余额；ETH 使用有效收款地址的独立 1 wei Gas 探测，从余额扣除 `gas × maxFeePerGas` 后填入候选值，再由最终 payload 重新估算并经过 Review 边界。
 - 普通 ETH/ERC-20 转账已加入 Chain Registry 驱动的区块浏览器证据链接：pending 与成功指向当前交易 Hash，加速、取消或内容替换后指向 replacement Hash；未知 chainId 不猜测 Explorer URL，外部链接使用新标签页与 `noopener noreferrer`。
+- 普通 ETH/ERC-20 转账已区分提交错误与 Receipt 观察错误：钱包未产生 Hash 前失败可重新 Review；已有 Hash 后查询失败显示“结果未知”、保留持久化记录并锁住发送，只允许对同一 Hash 调用 Receipt `refetch`。
 
 ## 当前未提交业务文件
 
-当前 Explorer 证据链接切片停在 Review 边界，尚未提交：
+当前安全重试切片停在 Review 边界，尚未提交：
 
 - `components/token/TokenTransferPanel.tsx`
 - `components/token/TokenTransferPanel.test.tsx`
-- `components/token/TransactionExplorerLink.tsx`
-- `lib/chains.ts`
-- `lib/chains.test.ts`
 - `docs/LEARNING_PROGRESS.md`
 
 `docs/PRODUCT_SPEC.md` 与 `docs/PRODUCTION_ROADMAP.md` 是此前已有的未跟踪产品文档，不属于当前业务步骤。
@@ -84,6 +82,8 @@
 - `231533b docs: checkpoint supported asset registry`
 - `5b6d396 feat: fill safe maximum transfer amounts`
 - `dbda1d7 docs: checkpoint maximum transfer amounts`
+- `15ab12e feat: link transfer explorer evidence`
+- `1e1d2f7 docs: checkpoint transfer explorer evidence`
 
 ## 当前步骤的设计结论
 
@@ -149,9 +149,15 @@ Replacement 证据必须跟随替换交易而不是原交易。普通转账的 r
 
 当前 Explorer 证据链接切片验证为 27 个测试文件、172 项测试通过，TypeScript、ESLint、Diff 检查和 Next.js 16.2.9 生产构建通过。
 
+Receipt/RPC 查询错误不是链上失败：只要当前账户、链和交易类型下仍有未决 Hash，普通转账就保持发送锁，即使 Wagmi 查询已经退出 `isLoading` 并返回 error。UI 不再把观察错误送入“转账失败，请重试”的提交错误文案，而是固定说明结果未知、禁止重发，同时继续提供 Explorer 证据和针对同一 Hash 的 `refetch`。查询错误不会清理本地 pending 记录。
+
+钱包请求在 `onSuccess(hash)` 前被拒绝或提交失败时没有可恢复的链上标识，因此不建立未决 Hash 锁，用户可以修正输入并重新 Review。Handler 自身也检查未决 Hash，而不只依赖按钮 disabled；成功 Receipt、明确取消或不同内容 replacement 才会按照既有终态逻辑解除原操作锁，加速则继续跟踪新 Hash。
+
+当前安全重试切片验证为 27 个测试文件、175 项测试通过，TypeScript、ESLint、Diff 检查和 Next.js 16.2.9 生产构建通过。
+
 ## 下一步
 
-本轮先 Review Explorer 证据链接未提交 Diff；确认后分别提交业务代码和恢复文档。下一代码切片实现安全重试：钱包请求在产生 Hash 前失败可以重新 Review；已有 Hash 后 Receipt/RPC 查询错误只能重试查询并继续锁住发送，绝不把 unknown 当作链上失败后盲目重发。Milestone 2 尚未结束，后续仍需地址簿/剪贴板/ENS、WalletConnect 与钱包选择；达到路线图退出条件时必须明确通知用户，再进入阶段 2 学习复盘。
+本轮先 Review 安全重试未提交 Diff；确认后分别提交业务代码和恢复文档。下一代码切片实现收款地址的安全剪贴板输入：ETH/ERC-20 复用同一读取与校验逻辑，只有通过 checksum/零地址规则的文本才能写入表单，权限失败或非法内容显式反馈。Milestone 2 尚未结束，后续仍需地址簿、ENS、WalletConnect 与钱包选择；达到路线图退出条件时必须明确通知用户，再进入阶段 2 学习复盘。
 
 ## 工作约束
 
