@@ -46,17 +46,16 @@
 - 普通 ETH/ERC-20 转账已区分提交错误与 Receipt 观察错误：钱包未产生 Hash 前失败可重新 Review；已有 Hash 后查询失败显示“结果未知”、保留持久化记录并锁住发送，只允许对同一 Hash 调用 Receipt `refetch`。
 - ETH/ERC-20 收款地址已加入安全剪贴板入口：剪贴板文本经过共享 checksum、格式与零地址校验后才写入表单；不可用、权限拒绝、非法或超长内容显式失败且不覆盖原值，异步读取的迟到结果不能覆盖较新的手动输入。
 - 建立版本化且按 `chainId` 隔离的本地地址簿：严格校验 schema、checksum 地址、零地址、名称和 50 条容量边界；损坏、跨链或未知版本记录 fail closed。管理 UI 可将联系人明确填入 ETH 或 ERC-20 表单，但不会自动进入 Review 或请求钱包，未决交易期间选择入口保持锁定。
+- ETH/ERC-20 收款输入已加入显式 ENS 解析：名称先经 viem ENS normalization 与 255-byte 边界校验，再固定查询写链；只有当前请求、当前输入和解析链仍一致时，返回地址才经 checksum/零地址校验后回填。未注册、RPC 失败或迟到结果均 fail closed，不会自动进入 Review 或钱包请求。
 
 ## 当前未提交业务文件
 
-当前地址簿存储与 UI 合并切片停在 Review 边界，尚未提交：
+当前 ENS 安全解析切片停在 Review 边界，尚未提交：
 
 - `components/token/TokenTransferPanel.tsx`
 - `components/token/TokenTransferPanel.test.tsx`
-- `components/token/TransferAddressBook.tsx`
-- `components/token/TransferAddressBook.test.tsx`
-- `lib/addressBookStorage.ts`
-- `lib/addressBookStorage.test.ts`
+- `lib/transferEns.ts`
+- `lib/transferEns.test.ts`
 - `docs/LEARNING_PROGRESS.md`
 
 `docs/PRODUCT_SPEC.md` 与 `docs/PRODUCTION_ROADMAP.md` 是此前已有的未跟踪产品文档，不属于当前业务步骤。
@@ -94,7 +93,8 @@
 - `298367b docs: checkpoint safe receipt retries`
 - `2d06878 feat: validate pasted transfer recipients`
 - `51a2d77 docs: checkpoint safe transfer clipboard`
-- `298367b docs: checkpoint safe receipt retries`
+- `0177ee9 feat: add chain-scoped transfer address book`
+- `3572b9c docs: checkpoint transfer address book`
 
 ## 当前步骤的设计结论
 
@@ -180,9 +180,17 @@ Receipt/RPC 查询错误不是链上失败：只要当前账户、链和交易�
 
 当前地址簿切片验证为 30 个测试文件、200 项测试通过，TypeScript、ESLint、Diff 检查和 Next.js 16.2.9 生产构建通过。首次构建因受限环境无法下载 Google Geist 字体而失败，允许网络后同一代码构建成功；该失败与业务代码无关。
 
+ENS 名称不是可直接转账的地址。用户必须显式点击解析，应用使用 viem 的 ENS normalization 规范化名称并限制规范化结果不超过 255 bytes；解析请求明确携带 `writeChain.id`，不会使用 Wagmi 默认的当前钱包链，也不会在 Sepolia 查不到时悄悄回落到 Ethereum Mainnet。查询返回值仍要经过共用的 checksum 与零地址 parser，只有通过后才替换表单文本。
+
+ETH 与 ERC-20 各自维护独立的 ENS request id、原始输入快照和目标链。手动输入、粘贴、地址簿选择、组件卸载或新的解析请求都会让旧请求失效；异步结果只有在 request id、原始输入和 `chainId` 同时匹配时才能回填。因此慢 RPC 响应不能覆盖用户后来输入的地址，ENS 查询错误也只展示固定产品文案，不回显上游内部细节。
+
+ENS 解析只建立“名称在指定链上当前解析为某地址”的查询证据，不证明该地址由联系人本人控制，也不冻结未来解析结果。解析成功只填入 checksum 地址并废弃旧 Review，后续仍必须经过余额、Gas、模拟、Review 快照和钱包确认；未决交易锁存在时解析按钮禁用，未注册名称、零地址与 RPC 错误均不可进入转账路径。
+
+当前 ENS 切片验证为 31 个测试文件、210 项测试通过，TypeScript、ESLint、Diff 检查和 Next.js 16.2.9 生产构建通过。
+
 ## 下一步
 
-本轮先 Review 地址簿存储与 UI 未提交 Diff；确认后分别提交业务代码和恢复文档。下一代码切片处理 ENS：解析结果必须绑定当前输入和链上下文，解析失败或旧异步结果不能覆盖较新的手动地址，也不能绕过既有 checksum、零地址、Review 与交易锁边界。Milestone 2 尚未结束，后续仍需 ENS、WalletConnect 与钱包选择以及最终测试网退出审计；达到路线图退出条件时必须明确通知用户，再进入阶段 2 学习复盘。
+本轮先 Review ENS 安全解析未提交 Diff；确认后分别提交业务代码和恢复文档。下一代码切片处理钱包连接层：在保留 injected wallet 的基础上评估并接入 WalletConnect，提供明确的钱包选择、连接中、拒绝和不可用状态，不把“点击连接”误报成“已连接”。随后执行 Milestone 2 最终测试网退出审计；达到路线图退出条件时必须明确通知用户，再进入阶段 2 学习复盘。
 
 ## 工作约束
 
