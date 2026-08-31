@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
   sendTransaction: vi.fn(),
   writeError: null as Error | null,
   sendError: null as Error | null,
+  readClipboard: vi.fn(),
   refetchTokenBalance: vi.fn(),
   refetchNativeBalance: vi.fn(),
   nativeBalance: BigInt('1000000000000000000'),
@@ -105,6 +106,11 @@ describe('TokenTransferPanel pending transactions', () => {
     mocks.sendTransaction.mockReset()
     mocks.writeError = null
     mocks.sendError = null
+    mocks.readClipboard.mockReset()
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { readText: mocks.readClipboard },
+    })
     mocks.refetchTokenBalance.mockReset()
     mocks.refetchNativeBalance.mockReset()
     mocks.nativeBalance = BigInt('1000000000000000000')
@@ -165,6 +171,48 @@ describe('TokenTransferPanel pending transactions', () => {
     expect(screen.getByText('你取消了这笔交易')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '预览 ERC-20 转账' })).toBeEnabled()
     expect(screen.getByRole('button', { name: '重新预览' })).toBeEnabled()
+  })
+
+  it('pastes only a validated checksum recipient into the ERC-20 form', async () => {
+    mocks.readClipboard.mockResolvedValue('  0x8f7b86fe8f1a5cab00aa66cbb3e3bbf6a79535ee  ')
+    render(<TokenTransferPanel />)
+
+    fireEvent.click(screen.getByRole('button', { name: '粘贴 ERC-20 收款地址' }))
+
+    await waitFor(() => expect(screen.getByLabelText('ERC-20 收款地址')).toHaveValue(
+      '0x8F7b86Fe8f1a5CaB00Aa66cBb3E3BBF6a79535EE',
+    ))
+    expect(mocks.writeContract).not.toHaveBeenCalled()
+  })
+
+  it('keeps the native recipient unchanged when pasted clipboard content is invalid', async () => {
+    mocks.readClipboard.mockResolvedValue('0x0000000000000000000000000000000000000000')
+    render(<TokenTransferPanel />)
+
+    fireEvent.click(screen.getByRole('button', { name: '粘贴 ETH 收款地址' }))
+
+    expect(await screen.findByText('剪贴板内容无效：不能向零地址转账')).toBeInTheDocument()
+    expect(screen.getByLabelText('ETH 收款地址')).toHaveValue('')
+    expect(mocks.sendTransaction).not.toHaveBeenCalled()
+  })
+
+  it('does not let a late clipboard response overwrite newer manual input', async () => {
+    let resolveClipboard!: (value: string) => void
+    mocks.readClipboard.mockReturnValue(new Promise<string>((resolve) => { resolveClipboard = resolve }))
+    render(<TokenTransferPanel />)
+
+    fireEvent.click(screen.getByRole('button', { name: '粘贴 ERC-20 收款地址' }))
+    fireEvent.change(screen.getByLabelText('ERC-20 收款地址'), {
+      target: { value: '0xcB29F8F0Aefc72E7Cf447328e0c4B7eDd94a2739' },
+    })
+    await act(async () => {
+      resolveClipboard('0x8f7b86fe8f1a5cab00aa66cbb3e3bbf6a79535ee')
+      await Promise.resolve()
+    })
+
+    expect(screen.getByLabelText('ERC-20 收款地址')).toHaveValue(
+      '0xcB29F8F0Aefc72E7Cf447328e0c4B7eDd94a2739',
+    )
   })
 
   it('stores a submitted ERC-20 transfer under the current wallet context', async () => {

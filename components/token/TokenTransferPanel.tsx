@@ -2,7 +2,7 @@
 
 import { getErrorMessage } from "@/lib/errors";
 import { encodeFunctionData, erc20Abi, formatEther, formatUnits, type Hash, type ReplacementReason } from "viem";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useBalance, useConnection, useEstimateFeesPerGas, useEstimateGas, useReadContract, useSendTransaction, useSimulateContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
 import { Button } from "@/components/ui/button";
 import { useWriteChainGuard } from "@/lib/hooks/useWriteChainGuard";
@@ -17,6 +17,7 @@ import { createTransferReview, type TransferReview } from "@/lib/transferReview"
 import { getSupportedErc20Asset, listSupportedErc20Assets } from "@/lib/assetRegistry";
 import { parseTransferRecipient } from "@/lib/transferRecipient";
 import { TransactionExplorerLink } from "@/components/token/TransactionExplorerLink";
+import { readTransferRecipientFromClipboard } from "@/lib/transferClipboard";
 
 interface ReplacementInfo {
     contextKey: string
@@ -42,6 +43,9 @@ export function TokenTransferPanel() {
     const [review, setReview] = useState<TransferReview | null>(null)
     const [nativeRecipient, setNativeRecipient] = useState('')
     const [nativeAmount, setNativeAmount] = useState('')
+    const nativeClipboardRequestId = useRef(0)
+    const [isReadingNativeClipboard, setIsReadingNativeClipboard] = useState(false)
+    const [nativeClipboardError, setNativeClipboardError] = useState<string | null>(null)
     const nativeRecipientInput = parseTransferRecipient(nativeRecipient)
     const nativeTransferInput = parseNativeTransferInput(nativeRecipient, nativeAmount)
     const isNativeGasProbeReady = !!address && isCorrectChain && nativeRecipientInput.ok
@@ -66,6 +70,9 @@ export function TokenTransferPanel() {
     })
     const [erc20Recipient, setErc20Recipient] = useState('')
     const [erc20Amount, setErc20Amount] = useState('')
+    const erc20ClipboardRequestId = useRef(0)
+    const [isReadingErc20Clipboard, setIsReadingErc20Clipboard] = useState(false)
+    const [erc20ClipboardError, setErc20ClipboardError] = useState<string | null>(null)
     const supportedErc20Assets = listSupportedErc20Assets(writeChain.id)
     const [selectedErc20AssetId, setSelectedErc20AssetId] = useState(supportedErc20Assets[0]?.id ?? '')
     const selectedErc20Asset = getSupportedErc20Asset(writeChain.id, selectedErc20AssetId)
@@ -217,6 +224,11 @@ export function TokenTransferPanel() {
         return () => { cancelled = true }
     }, [reviewContextKey])
 
+    useEffect(() => () => {
+        erc20ClipboardRequestId.current += 1
+        nativeClipboardRequestId.current += 1
+    }, [])
+
     useEffect(() => {
         if (!address || !chainId || !sendContextKey) return
         const record = loadPendingTransaction(window.localStorage, { account: address, chainId, kind: 'native-transfer' })
@@ -281,6 +293,23 @@ export function TokenTransferPanel() {
         }))
     }
 
+    async function pasteErc20Recipient() {
+        const requestId = ++erc20ClipboardRequestId.current
+        setIsReadingErc20Clipboard(true)
+        setErc20ClipboardError(null)
+        setReview(null)
+        const result = await readTransferRecipientFromClipboard(
+            typeof navigator === 'undefined' ? undefined : navigator.clipboard,
+        )
+        if (requestId !== erc20ClipboardRequestId.current) return
+        setIsReadingErc20Clipboard(false)
+        if (!result.ok) {
+            setErc20ClipboardError(result.error)
+            return
+        }
+        setErc20Recipient(result.recipient)
+    }
+
     function fillErc20MaxAmount() {
         if (!selectedErc20Asset || !isTokenMetadataVerified || tokenBalance === undefined || tokenBalance <= BigInt(0) || isTransferBusy) return
         setErc20Amount(formatUnits(tokenBalance, selectedErc20Asset.decimals))
@@ -319,6 +348,23 @@ export function TokenTransferPanel() {
             gasCostLimit: nativeTransferBudget.gasCostLimit,
             balance: nativeBalance.value,
         }))
+    }
+
+    async function pasteNativeRecipient() {
+        const requestId = ++nativeClipboardRequestId.current
+        setIsReadingNativeClipboard(true)
+        setNativeClipboardError(null)
+        setReview(null)
+        const result = await readTransferRecipientFromClipboard(
+            typeof navigator === 'undefined' ? undefined : navigator.clipboard,
+        )
+        if (requestId !== nativeClipboardRequestId.current) return
+        setIsReadingNativeClipboard(false)
+        if (!result.ok) {
+            setNativeClipboardError(result.error)
+            return
+        }
+        setNativeRecipient(result.recipient)
     }
 
     function fillNativeMaxAmount() {
@@ -422,11 +468,27 @@ export function TokenTransferPanel() {
 
             <div className="space-y-2">
                 <div className="space-y-1">
-                    <label className="text-sm font-medium" htmlFor="erc20-recipient">ERC-20 收款地址</label>
+                    <div className="flex items-center justify-between gap-2">
+                        <label className="text-sm font-medium" htmlFor="erc20-recipient">ERC-20 收款地址</label>
+                        <Button
+                            type="button"
+                            variant="ghost"
+                            size="xs"
+                            aria-label="粘贴 ERC-20 收款地址"
+                            onClick={() => { void pasteErc20Recipient() }}
+                            disabled={isReadingErc20Clipboard || isTransferLocked}
+                        >{isReadingErc20Clipboard ? '读取中…' : '粘贴'}</Button>
+                    </div>
                     <Input
                         id="erc20-recipient"
                         value={erc20Recipient}
-                        onChange={(event) => { setErc20Recipient(event.target.value); setReview(null) }}
+                        onChange={(event) => {
+                            erc20ClipboardRequestId.current += 1
+                            setIsReadingErc20Clipboard(false)
+                            setErc20ClipboardError(null)
+                            setErc20Recipient(event.target.value)
+                            setReview(null)
+                        }}
                         placeholder="0x…"
                         autoComplete="off"
                         spellCheck={false}
@@ -435,6 +497,7 @@ export function TokenTransferPanel() {
                     {!!erc20Recipient && !erc20TransferInput.ok && erc20TransferInput.recipientError && (
                         <p className="text-sm text-destructive">{erc20TransferInput.recipientError}</p>
                     )}
+                    {erc20ClipboardError && <p className="text-sm text-destructive">{erc20ClipboardError}</p>}
                 </div>
                 <div className="space-y-1">
                     <div className="flex items-center justify-between gap-2">
@@ -517,11 +580,27 @@ export function TokenTransferPanel() {
                     {nativeBalance ? `ETH 余额: ${formatEther(nativeBalance.value)}` : '正在读取 ETH 余额…'}
                 </p>
                 <div className="space-y-1">
-                    <label className="text-sm font-medium" htmlFor="native-recipient">ETH 收款地址</label>
+                    <div className="flex items-center justify-between gap-2">
+                        <label className="text-sm font-medium" htmlFor="native-recipient">ETH 收款地址</label>
+                        <Button
+                            type="button"
+                            variant="ghost"
+                            size="xs"
+                            aria-label="粘贴 ETH 收款地址"
+                            onClick={() => { void pasteNativeRecipient() }}
+                            disabled={isReadingNativeClipboard || isSendLocked}
+                        >{isReadingNativeClipboard ? '读取中…' : '粘贴'}</Button>
+                    </div>
                     <Input
                         id="native-recipient"
                         value={nativeRecipient}
-                        onChange={(event) => { setNativeRecipient(event.target.value); setReview(null) }}
+                        onChange={(event) => {
+                            nativeClipboardRequestId.current += 1
+                            setIsReadingNativeClipboard(false)
+                            setNativeClipboardError(null)
+                            setNativeRecipient(event.target.value)
+                            setReview(null)
+                        }}
                         placeholder="0x…"
                         autoComplete="off"
                         spellCheck={false}
@@ -530,6 +609,7 @@ export function TokenTransferPanel() {
                     {!!nativeRecipient && !nativeTransferInput.ok && nativeTransferInput.recipientError && (
                         <p className="text-sm text-destructive">{nativeTransferInput.recipientError}</p>
                     )}
+                    {nativeClipboardError && <p className="text-sm text-destructive">{nativeClipboardError}</p>}
                 </div>
                 <div className="space-y-1">
                     <div className="flex items-center justify-between gap-2">
