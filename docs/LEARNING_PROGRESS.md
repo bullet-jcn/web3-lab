@@ -4,7 +4,7 @@
 
 ## 当前目标
 
-推进 Milestone 2 / Batch C 的真实转账工作流，并在每一步保留可 Review 的未提交 Diff。完整学习复盘已再次暂停：钱包身份、链边界、交易生命周期、replacement/partial success、持久化边界和 EIP-5792 已复习，后续从“授权风险与 AI 边界”继续。
+推进 Milestone 2 / Batch C 的真实转账工作流，并在每一步保留可 Review 的未提交 Diff。第一阶段完整学习复盘已经完成：钱包身份、链边界、交易生命周期、replacement/partial success、持久化边界、EIP-5792、授权与 AI 边界、API 安全以及测试证据均已串联复习。
 
 ## 已完成
 
@@ -39,10 +39,20 @@
 - 原生 ETH 转账已加入余额与 EIP-1559 Gas 预算：读取当前账户余额、估算目标请求的 Gas 单位和 `maxFeePerGas`，只有 `value + gas × maxFeePerGas <= balance` 时才允许请求钱包，确认后刷新余额。
 - ETH 与 ERC-20 转账已加入钱包前 Review 快照：第一次操作只冻结并展示 chain、asset、recipient、显示金额、最小单位、余额以及适用的 Gas 预算，第二次确认才调用钱包；输入、账户、链、余额、模拟或 Gas 证据变化会使旧快照失效。
 - ERC-20 转账已加入原生 Gas 余额边界：用同一 `transfer(recipient, amount)` 编码 calldata 估算合约调用 Gas，只有 Token 余额和 ETH Gas 预算同时充足才允许 Review，并在 Review 中冻结 Gas 预算与 ETH 支付余额。
+- 普通 ERC-20 转账已接入按 `chainId + assetId` 查询的受支持资产 Registry 与资产选择器：地址、symbol 和 decimals 由应用 allowlist 决定，链上 `decimals()` 只用于一致性校验；未知 selector、未知链或 metadata 不一致均 fail closed，Review 与钱包请求会再次绑定 Registry 资产。
+- 第一阶段学习复盘已完成，能够从身份、链、意图、执行、观察五个上下文解释架构，并区分单元、组件、Route 集成、生产构建证据及尚未覆盖的真实钱包/E2E/可观测性边界。
 
 ## 当前未提交业务文件
 
-无。ERC-20 Gas 余额边界已提交，当前仅更新本恢复文件。
+当前资产 Registry 切片停在 Review 边界，尚未提交：
+
+- `lib/assetRegistry.ts`
+- `lib/assetRegistry.test.ts`
+- `components/token/TokenTransferPanel.tsx`
+- `components/token/TokenTransferPanel.test.tsx`
+- `lib/constants.ts`
+- `lib/transferReview.ts`
+- `docs/LEARNING_PROGRESS.md`
 
 `docs/PRODUCT_SPEC.md` 与 `docs/PRODUCTION_ROADMAP.md` 是此前已有的未跟踪产品文档，不属于当前业务步骤。
 
@@ -108,7 +118,7 @@ Milestone 1 退出证据：账户不一致时授权 UI 被阻断；写路径绑�
 
 Batch C 首个切片只替换原生 ETH 的固定输入，不同时改 ERC-20、余额、ENS、Gas 和 Review Screen。地址通过 viem 严格校验后规范化为 checksum address，并显式阻止零地址；金额只接受普通十进制定点格式，最多 18 位小数，再用 `parseEther` 转成整数 wei。表单永远不使用 JavaScript 浮点数，解析失败时也不会触发钱包请求。原有回执状态机、替换处理和待确认交易恢复保持不变。
 
-ERC-20 金额不能假设 18 位精度：本轮先读取当前写链上固定代币合约的 `decimals()`，再用 `parseUnits` 将用户字符串转换为整数最小单位；0-decimal 代币不接受小数，结果还必须落在 uint256 范围内。`symbol()` 属于合约提供的不可信展示 metadata，因此只接受 1–12 个可打印 ASCII 字符，异常时退回 `ERC-20`，绝不让 symbol 决定合约地址、精度或交易参数。模拟与钱包请求复用同一个已解析 payload，避免 UI 展示值和实际发送值分叉。
+ERC-20 金额不能假设 18 位精度：先使用受支持资产 Registry 中经过应用确认的 decimals，通过 `parseUnits` 将用户字符串转换为整数最小单位；0-decimal 代币不接受小数，结果还必须落在 uint256 范围内。Registry 接入前曾把受约束的链上 `symbol()` 仅用于展示；现在 symbol 完全来自 allowlist，链上 `decimals()` 只验证 Registry 是否仍与目标合约一致，不一致即禁止发送。模拟与钱包请求复用同一个已解析 payload，避免 UI 展示值和实际发送值分叉。
 
 ERC-20 余额比较只在输入已解析为整数最小单位且当前账户、目标链、目标代币的 `balanceOf` 已返回时才允许通过；余额未知不是“暂时假定够用”，而是不可发送。余额检查改善错误反馈但不是并发保证：检查后余额仍可能被其他交易改变，因此合约模拟和最终 Receipt 继续作为后续防线。成功 Receipt 会触发余额重新读取，避免 UI 长期展示提交前缓存。
 
@@ -118,9 +128,13 @@ Review Screen 不是把当前表单再显示一次，而是创建运行时冻结
 
 ERC-20 余额和 Gas 余额属于不同资产边界：`balanceOf` 足够只证明 Token 能转，账户还必须有原生 ETH 支付合约调用。Gas estimate 使用与模拟/钱包请求相同的 recipient 与最小单位 amount 编码 calldata，结合 EIP-1559 `maxFeePerGas` 得到预算；余额或预算变化会使 Review 失效。ERC-20 成功 Receipt 后同时刷新 Token 余额与 ETH 余额，因为前者发生资产转移，后者支付了 Gas。
 
+资产选择器只保存公开的 `assetId`，不会把 option value 当作合约地址。所有链上读取、Gas 估算、模拟、Review 和最终钱包请求都通过写链 ID 与 selector 重新解析 Registry；对象原型属性也不能命中资产查找。Registry 是资产身份与展示 metadata 的权威来源，同时读取已登记合约的 `decimals()` 做运行时一致性校验，防止配置错误或合约变化把金额按错误精度发送。当前只登记 Sepolia USDC，不为制造多选效果而加入未经核实的测试币。
+
+本切片最终验证为 27 个测试文件、166 项测试通过，TypeScript、ESLint、Diff 检查和 Next.js 16.2.9 生产构建通过。生产构建首次仅因沙箱无法下载 Google Geist 字体失败，联网重跑后成功。
+
 ## 下一步
 
-把固定 ERC-20 合约升级为按 chainId 定义的受支持资产 Registry 与选择器；不直接接受任意 symbol 或未经验证的任意合约地址。学习复盘待恢复时从“授权风险与 AI 边界”继续。
+本轮先 Review 资产 Registry 未提交 Diff；确认后分别提交业务代码和恢复文档。下一代码切片按 Milestone 2 路线图实现“最大金额”操作：ERC-20 使用精确最小单位余额，原生 ETH 必须扣除保守 Gas 预算，继续禁止浮点数和证据不足时的猜测。
 
 ## 工作约束
 
