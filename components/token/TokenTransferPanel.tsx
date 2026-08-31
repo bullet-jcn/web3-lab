@@ -18,6 +18,7 @@ import { getSupportedErc20Asset, listSupportedErc20Assets } from "@/lib/assetReg
 import { parseTransferRecipient } from "@/lib/transferRecipient";
 import { TransactionExplorerLink } from "@/components/token/TransactionExplorerLink";
 import { readTransferRecipientFromClipboard } from "@/lib/transferClipboard";
+import { TransferAddressBook } from "@/components/token/TransferAddressBook";
 
 interface ReplacementInfo {
     contextKey: string
@@ -373,6 +374,22 @@ export function TokenTransferPanel() {
         setReview(null)
     }
 
+    function selectErc20RecipientFromAddressBook(recipient: `0x${string}`) {
+        erc20ClipboardRequestId.current += 1
+        setIsReadingErc20Clipboard(false)
+        setErc20ClipboardError(null)
+        setErc20Recipient(recipient)
+        setReview(null)
+    }
+
+    function selectNativeRecipientFromAddressBook(recipient: `0x${string}`) {
+        nativeClipboardRequestId.current += 1
+        setIsReadingNativeClipboard(false)
+        setNativeClipboardError(null)
+        setNativeRecipient(recipient)
+        setReview(null)
+    }
+
     function confirmNativeTransfer() {
         if (hasUnresolvedSend || !address || !isCorrectChain || activeReview?.kind !== 'native' || nativeBalance === undefined || activeReview.value + activeReview.gasCostLimit > nativeBalance.value) return
         setSendReplacement(null)
@@ -437,6 +454,14 @@ export function TokenTransferPanel() {
                     {switchChainError && <p className="text-sm text-destructive">切换网络失败: {switchChainError.message}</p>}
                 </div>
             )}
+
+            <TransferAddressBook
+                chainId={writeChain.id}
+                chainName={writeChain.name}
+                selectionDisabled={isTransferLocked || isSendLocked}
+                onSelectErc20={selectErc20RecipientFromAddressBook}
+                onSelectNative={selectNativeRecipientFromAddressBook}
+            />
 
             <div className="space-y-1">
                 <label className="text-sm font-medium" htmlFor="erc20-asset">ERC-20 资产</label>

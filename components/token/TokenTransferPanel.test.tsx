@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { TokenTransferPanel } from './TokenTransferPanel'
+import { addressBookStorageKey } from '@/lib/addressBookStorage'
 
 type Hash = `0x${string}`
 type ReplacementCallback = (event: {
@@ -92,6 +93,17 @@ function seedPending(kind: 'erc20-transfer' | 'native-transfer', hash: Hash) {
     kind,
     hash,
     createdAt: Date.now(),
+  }))
+}
+
+function seedAddressBook() {
+  localStorage.setItem(addressBookStorageKey(CHAIN_ID), JSON.stringify({
+    version: 1,
+    chainId: CHAIN_ID,
+    entries: [{
+      name: 'Alice',
+      address: '0x8F7b86Fe8f1a5CaB00Aa66cBb3E3BBF6a79535EE',
+    }],
   }))
 }
 
@@ -213,6 +225,23 @@ describe('TokenTransferPanel pending transactions', () => {
     expect(screen.getByLabelText('ERC-20 收款地址')).toHaveValue(
       '0xcB29F8F0Aefc72E7Cf447328e0c4B7eDd94a2739',
     )
+  })
+
+  it('fills either recipient form from the current chain address book without opening a review', async () => {
+    seedAddressBook()
+    render(<TokenTransferPanel />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '将 Alice 用于 ERC-20' }))
+    expect(screen.getByLabelText('ERC-20 收款地址')).toHaveValue(
+      '0x8F7b86Fe8f1a5CaB00Aa66cBb3E3BBF6a79535EE',
+    )
+    fireEvent.click(screen.getByRole('button', { name: '将 Alice 用于 ETH' }))
+    expect(screen.getByLabelText('ETH 收款地址')).toHaveValue(
+      '0x8F7b86Fe8f1a5CaB00Aa66cBb3E3BBF6a79535EE',
+    )
+    expect(screen.queryByText('转账前确认')).not.toBeInTheDocument()
+    expect(mocks.writeContract).not.toHaveBeenCalled()
+    expect(mocks.sendTransaction).not.toHaveBeenCalled()
   })
 
   it('stores a submitted ERC-20 transfer under the current wallet context', async () => {
