@@ -19,8 +19,12 @@ const REPLACEMENT_HASH = `0x${'03'.repeat(32)}` as Hash
 const mocks = vi.hoisted(() => ({
   receiptCallbacks: new Map<string, ReplacementCallback>(),
   confirmedHashes: new Set<string>(),
+  receiptErrors: new Map<string, Error>(),
+  refetchReceipt: vi.fn(),
   writeContract: vi.fn(),
   sendTransaction: vi.fn(),
+  writeError: null as Error | null,
+  sendError: null as Error | null,
   refetchTokenBalance: vi.fn(),
   refetchNativeBalance: vi.fn(),
   nativeBalance: BigInt('1000000000000000000'),
@@ -49,14 +53,17 @@ vi.mock('wagmi', () => ({
     refetch: options.functionName === 'balanceOf' ? mocks.refetchTokenBalance : vi.fn(),
   }),
   useSimulateContract: () => ({ error: null }),
-  useWriteContract: () => ({ mutate: mocks.writeContract, isPending: false, error: null }),
-  useSendTransaction: () => ({ mutate: mocks.sendTransaction, isPending: false, error: null }),
+  useWriteContract: () => ({ mutate: mocks.writeContract, isPending: false, error: mocks.writeError }),
+  useSendTransaction: () => ({ mutate: mocks.sendTransaction, isPending: false, error: mocks.sendError }),
   useWaitForTransactionReceipt: (options: { hash?: string; onReplaced?: ReplacementCallback }) => {
     if (options.hash && options.onReplaced) mocks.receiptCallbacks.set(options.hash, options.onReplaced)
+    const error = options.hash ? mocks.receiptErrors.get(options.hash) ?? null : null
     return {
-      isLoading: !!options.hash && !mocks.confirmedHashes.has(options.hash),
+      isLoading: !!options.hash && !mocks.confirmedHashes.has(options.hash) && !error,
       isSuccess: !!options.hash && mocks.confirmedHashes.has(options.hash),
-      error: null,
+      error,
+      refetch: () => mocks.refetchReceipt(options.hash),
+      isRefetching: false,
     }
   },
 }))
@@ -92,8 +99,12 @@ describe('TokenTransferPanel pending transactions', () => {
     localStorage.clear()
     mocks.receiptCallbacks.clear()
     mocks.confirmedHashes.clear()
+    mocks.receiptErrors.clear()
+    mocks.refetchReceipt.mockReset()
     mocks.writeContract.mockReset()
     mocks.sendTransaction.mockReset()
+    mocks.writeError = null
+    mocks.sendError = null
     mocks.refetchTokenBalance.mockReset()
     mocks.refetchNativeBalance.mockReset()
     mocks.nativeBalance = BigInt('1000000000000000000')
@@ -108,6 +119,52 @@ describe('TokenTransferPanel pending transactions', () => {
     expect(await screen.findAllByText('链上确认中…')).toHaveLength(2)
     expect(mocks.receiptCallbacks.has(TRANSFER_HASH)).toBe(true)
     expect(mocks.receiptCallbacks.has(SEND_HASH)).toBe(true)
+  })
+
+  it('keeps an ERC-20 hash locked and only retries its receipt query after an observation error', async () => {
+    seedPending('erc20-transfer', TRANSFER_HASH)
+    mocks.receiptErrors.set(TRANSFER_HASH, new Error('RPC unavailable'))
+    render(<TokenTransferPanel />)
+
+    expect(await screen.findByText('暂时无法查询链上状态，交易结果仍未知。请勿重新发送。')).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('ERC-20 收款地址'), { target: { value: '0x8F7b86Fe8f1a5CaB00Aa66cBb3E3BBF6a79535EE' } })
+    fireEvent.change(screen.getByLabelText('USDC 数量'), { target: { value: '1' } })
+
+    expect(screen.getByRole('button', { name: '预览 ERC-20 转账' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: '重新查询 ERC-20 交易状态' }))
+
+    expect(mocks.refetchReceipt).toHaveBeenCalledWith(TRANSFER_HASH)
+    expect(mocks.writeContract).not.toHaveBeenCalled()
+    expect(localStorage.getItem(storageKey('erc20-transfer'))).toContain(TRANSFER_HASH)
+  })
+
+  it('keeps a native hash locked and only retries its receipt query after an observation error', async () => {
+    seedPending('native-transfer', SEND_HASH)
+    mocks.receiptErrors.set(SEND_HASH, new Error('RPC unavailable'))
+    render(<TokenTransferPanel />)
+
+    expect(await screen.findByText('暂时无法查询链上状态，交易结果仍未知。请勿重新发送。')).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('ETH 收款地址'), { target: { value: '0x8F7b86Fe8f1a5CaB00Aa66cBb3E3BBF6a79535EE' } })
+    fireEvent.change(screen.getByLabelText('ETH 数量'), { target: { value: '0.1' } })
+
+    expect(screen.getByRole('button', { name: '预览 ETH 转账' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: '重新查询 ETH 交易状态' }))
+
+    expect(mocks.refetchReceipt).toHaveBeenCalledWith(SEND_HASH)
+    expect(mocks.sendTransaction).not.toHaveBeenCalled()
+    expect(localStorage.getItem(storageKey('native-transfer'))).toContain(SEND_HASH)
+  })
+
+  it('allows a fresh review when wallet submission failed before producing a hash', () => {
+    mocks.writeError = new Error('User rejected the request')
+    render(<TokenTransferPanel />)
+
+    fireEvent.change(screen.getByLabelText('ERC-20 收款地址'), { target: { value: '0x8F7b86Fe8f1a5CaB00Aa66cBb3E3BBF6a79535EE' } })
+    fireEvent.change(screen.getByLabelText('USDC 数量'), { target: { value: '1' } })
+
+    expect(screen.getByText('你取消了这笔交易')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '预览 ERC-20 转账' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '重新预览' })).toBeEnabled()
   })
 
   it('stores a submitted ERC-20 transfer under the current wallet context', async () => {

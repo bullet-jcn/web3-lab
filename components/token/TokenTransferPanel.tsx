@@ -167,6 +167,8 @@ export function TokenTransferPanel() {
         isLoading: isConfirmingTransfer,
         isSuccess: isTransferConfirmed,
         error: transferReceiptError,
+        refetch: refetchTransferReceipt,
+        isRefetching: isRefetchingTransferReceipt,
     } = useWaitForTransactionReceipt({
         hash: transferHash,
         onReplaced: ({ reason, transaction }) => {
@@ -183,6 +185,8 @@ export function TokenTransferPanel() {
         isLoading: isConfirmingSend,
         isSuccess: isSendConfirmed,
         error: sendReceiptError,
+        refetch: refetchSendReceipt,
+        isRefetching: isRefetchingSendReceipt,
     } = useWaitForTransactionReceipt({
         hash: sendHash,
         onReplaced: ({ reason, transaction }) => {
@@ -258,7 +262,7 @@ export function TokenTransferPanel() {
     }
 
     function openErc20Review() {
-        if (!reviewContextKey || !chainId || !isCorrectChain || !selectedErc20Asset || !isTokenMetadataVerified || !erc20TransferInput.ok || tokenBalanceState !== 'sufficient' || erc20GasBudget.state !== 'sufficient' || tokenBalance === undefined || nativeBalance === undefined || simulateError) return
+        if (hasUnresolvedTransfer || !reviewContextKey || !chainId || !isCorrectChain || !selectedErc20Asset || !isTokenMetadataVerified || !erc20TransferInput.ok || tokenBalanceState !== 'sufficient' || erc20GasBudget.state !== 'sufficient' || tokenBalance === undefined || nativeBalance === undefined || simulateError) return
         setReview(createTransferReview({
             kind: 'erc20',
             assetId: selectedErc20Asset.id,
@@ -284,7 +288,7 @@ export function TokenTransferPanel() {
     }
 
     function confirmErc20Transfer() {
-        if (!address || !isCorrectChain || activeReview?.kind !== 'erc20' || tokenBalance === undefined || nativeBalance === undefined || activeReview.amount > tokenBalance || activeReview.gasCostLimit > nativeBalance.value) return
+        if (hasUnresolvedTransfer || !address || !isCorrectChain || activeReview?.kind !== 'erc20' || tokenBalance === undefined || nativeBalance === undefined || activeReview.amount > tokenBalance || activeReview.gasCostLimit > nativeBalance.value) return
         const registeredAsset = getSupportedErc20Asset(activeReview.chainId, activeReview.assetId)
         if (!registeredAsset || registeredAsset.address !== activeReview.tokenAddress || registeredAsset.decimals !== activeReview.decimals) return
         setTransferReplacement(null)
@@ -302,7 +306,7 @@ export function TokenTransferPanel() {
     }
 
     function openNativeReview() {
-        if (!reviewContextKey || !chainId || !isCorrectChain || !nativeTransferInput.ok || nativeTransferBudget.state !== 'sufficient' || nativeBalance === undefined) return
+        if (hasUnresolvedSend || !reviewContextKey || !chainId || !isCorrectChain || !nativeTransferInput.ok || nativeTransferBudget.state !== 'sufficient' || nativeBalance === undefined) return
         setReview(createTransferReview({
             kind: 'native',
             contextKey: reviewContextKey,
@@ -324,7 +328,7 @@ export function TokenTransferPanel() {
     }
 
     function confirmNativeTransfer() {
-        if (!address || !isCorrectChain || activeReview?.kind !== 'native' || nativeBalance === undefined || activeReview.value + activeReview.gasCostLimit > nativeBalance.value) return
+        if (hasUnresolvedSend || !address || !isCorrectChain || activeReview?.kind !== 'native' || nativeBalance === undefined || activeReview.value + activeReview.gasCostLimit > nativeBalance.value) return
         setSendReplacement(null)
         sendTransaction({
             to: activeReview.recipient,
@@ -337,8 +341,8 @@ export function TokenTransferPanel() {
         })
     }
 
-    const transferError = writeError ?? transferReceiptError
-    const sendTransactionError = sendError ?? sendReceiptError
+    const transferError = transferHash ? transferReceiptError : writeError
+    const sendTransactionError = sendHash ? sendReceiptError : sendError
     const activeTransferReplacement = transferReplacement?.contextKey === transferContextKey ? transferReplacement : null
     const activeSendReplacement = sendReplacement?.contextKey === sendContextKey ? sendReplacement : null
     const transferState = resolveTransactionState({
@@ -355,14 +359,20 @@ export function TokenTransferPanel() {
         error: sendTransactionError,
         replacementReason: activeSendReplacement?.reason,
     })
-    const transferErrorMessage = getErrorMessage(transferError)
-    const sendErrorMessage = getErrorMessage(sendTransactionError)
+    const transferSubmissionErrorMessage = getErrorMessage(transferHash ? null : writeError)
+    const hasTransferObservationError = !!transferHash && !!transferReceiptError
+    const sendSubmissionErrorMessage = getErrorMessage(sendHash ? null : sendError)
+    const hasSendObservationError = !!sendHash && !!sendReceiptError
     const transferReplacementMessage = getReplacementMessage(activeTransferReplacement?.reason)
     const sendReplacementMessage = getReplacementMessage(activeSendReplacement?.reason)
     const transferExplorerHash = activeTransferReplacement?.hash ?? transferHash
     const sendExplorerHash = activeSendReplacement?.hash ?? sendHash
     const isTransferBusy = transferState === 'awaiting-wallet' || transferState === 'confirming'
     const isSendBusy = sendState === 'awaiting-wallet' || sendState === 'confirming'
+    const hasUnresolvedTransfer = !!transferHash && !isTransferConfirmed
+    const hasUnresolvedSend = !!sendHash && !isSendConfirmed
+    const isTransferLocked = isTransferBusy || hasUnresolvedTransfer || isRefetchingTransferReceipt
+    const isSendLocked = isSendBusy || hasUnresolvedSend || isRefetchingSendReceipt
 
     return (
         <div className="space-y-4">
@@ -467,7 +477,7 @@ export function TokenTransferPanel() {
                         <p className="text-sm text-destructive">ETH 不足以支付 ERC-20 Gas，预算还差 {formatEther(erc20GasBudget.shortfall)} ETH</p>
                     )}
                 </div>
-                <Button className="w-full" onClick={openErc20Review} disabled={!address || !isCorrectChain || !selectedErc20Asset || !isTokenMetadataVerified || !erc20TransferInput.ok || tokenBalanceState !== 'sufficient' || erc20GasBudget.state !== 'sufficient' || !!simulateError || isTransferBusy}>
+                <Button className="w-full" onClick={openErc20Review} disabled={!address || !isCorrectChain || !selectedErc20Asset || !isTokenMetadataVerified || !erc20TransferInput.ok || tokenBalanceState !== 'sufficient' || erc20GasBudget.state !== 'sufficient' || !!simulateError || isTransferLocked}>
                     {transferState === 'awaiting-wallet' && '等待钱包确认…'}
                     {transferState === 'confirming' && '链上确认中…'}
                     {!isTransferBusy && '预览 ERC-20 转账'}
@@ -486,10 +496,18 @@ export function TokenTransferPanel() {
                         ? '查看 ERC-20 替换交易'
                         : transferState === 'success' ? '查看已确认 ERC-20 交易' : '查看 ERC-20 交易'}
                 />
-                {transferErrorMessage && (
+                {transferSubmissionErrorMessage && (
                     <div className="flex items-center gap-2">
-                        <p className="text-sm text-destructive">{transferErrorMessage}</p>
+                        <p className="text-sm text-destructive">{transferSubmissionErrorMessage}</p>
                         <Button variant="ghost" onClick={openErc20Review} disabled={!address || !isCorrectChain || !selectedErc20Asset || !isTokenMetadataVerified || !erc20TransferInput.ok || tokenBalanceState !== 'sufficient' || isTransferBusy}>重新预览</Button>
+                    </div>
+                )}
+                {hasTransferObservationError && (
+                    <div className="space-y-2 rounded-md border border-orange-300 bg-orange-50 p-3 dark:border-orange-800 dark:bg-orange-950">
+                        <p className="text-sm text-orange-700 dark:text-orange-300">暂时无法查询链上状态，交易结果仍未知。请勿重新发送。</p>
+                        <Button type="button" variant="outline" size="sm" onClick={() => { void refetchTransferReceipt() }} disabled={isRefetchingTransferReceipt}>
+                            {isRefetchingTransferReceipt ? '重新查询中…' : '重新查询 ERC-20 交易状态'}
+                        </Button>
                     </div>
                 )}
             </div>
@@ -552,7 +570,7 @@ export function TokenTransferPanel() {
                         </p>
                     )}
                 </div>
-                <Button className="w-full" variant="outline" onClick={openNativeReview} disabled={!address || !isCorrectChain || !nativeTransferInput.ok || nativeTransferBudget.state !== 'sufficient' || isSendBusy}>
+                <Button className="w-full" variant="outline" onClick={openNativeReview} disabled={!address || !isCorrectChain || !nativeTransferInput.ok || nativeTransferBudget.state !== 'sufficient' || isSendLocked}>
                     {sendState === 'awaiting-wallet' && '等待钱包确认…'}
                     {sendState === 'confirming' && '链上确认中…'}
                     {!isSendBusy && '预览 ETH 转账'}
@@ -570,7 +588,15 @@ export function TokenTransferPanel() {
                         ? '查看 ETH 替换交易'
                         : sendState === 'success' ? '查看已确认 ETH 交易' : '查看 ETH 交易'}
                 />
-                {sendErrorMessage && <p className="text-sm text-destructive">{sendErrorMessage}</p>}
+                {sendSubmissionErrorMessage && <p className="text-sm text-destructive">{sendSubmissionErrorMessage}</p>}
+                {hasSendObservationError && (
+                    <div className="space-y-2 rounded-md border border-orange-300 bg-orange-50 p-3 dark:border-orange-800 dark:bg-orange-950">
+                        <p className="text-sm text-orange-700 dark:text-orange-300">暂时无法查询链上状态，交易结果仍未知。请勿重新发送。</p>
+                        <Button type="button" variant="outline" size="sm" onClick={() => { void refetchSendReceipt() }} disabled={isRefetchingSendReceipt}>
+                            {isRefetchingSendReceipt ? '重新查询中…' : '重新查询 ETH 交易状态'}
+                        </Button>
+                    </div>
+                )}
             </div>
 
             {activeReview && (
