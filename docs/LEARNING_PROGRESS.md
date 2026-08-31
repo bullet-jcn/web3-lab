@@ -44,13 +44,16 @@
 - ERC-20 与原生 ETH 已加入确定性的“最大金额”操作：Token 直接格式化整数最小单位余额；ETH 使用有效收款地址的独立 1 wei Gas 探测，从余额扣除 `gas × maxFeePerGas` 后填入候选值，再由最终 payload 重新估算并经过 Review 边界。
 - 普通 ETH/ERC-20 转账已加入 Chain Registry 驱动的区块浏览器证据链接：pending 与成功指向当前交易 Hash，加速、取消或内容替换后指向 replacement Hash；未知 chainId 不猜测 Explorer URL，外部链接使用新标签页与 `noopener noreferrer`。
 - 普通 ETH/ERC-20 转账已区分提交错误与 Receipt 观察错误：钱包未产生 Hash 前失败可重新 Review；已有 Hash 后查询失败显示“结果未知”、保留持久化记录并锁住发送，只允许对同一 Hash 调用 Receipt `refetch`。
+- ETH/ERC-20 收款地址已加入安全剪贴板入口：剪贴板文本经过共享 checksum、格式与零地址校验后才写入表单；不可用、权限拒绝、非法或超长内容显式失败且不覆盖原值，异步读取的迟到结果不能覆盖较新的手动输入。
 
 ## 当前未提交业务文件
 
-当前安全重试切片停在 Review 边界，尚未提交：
+当前安全剪贴板切片停在 Review 边界，尚未提交：
 
 - `components/token/TokenTransferPanel.tsx`
 - `components/token/TokenTransferPanel.test.tsx`
+- `lib/transferClipboard.ts`
+- `lib/transferClipboard.test.ts`
 - `docs/LEARNING_PROGRESS.md`
 
 `docs/PRODUCT_SPEC.md` 与 `docs/PRODUCTION_ROADMAP.md` 是此前已有的未跟踪产品文档，不属于当前业务步骤。
@@ -84,6 +87,8 @@
 - `dbda1d7 docs: checkpoint maximum transfer amounts`
 - `15ab12e feat: link transfer explorer evidence`
 - `1e1d2f7 docs: checkpoint transfer explorer evidence`
+- `f31c92b fix: retry transfer receipt observation`
+- `298367b docs: checkpoint safe receipt retries`
 
 ## 当前步骤的设计结论
 
@@ -155,9 +160,15 @@ Receipt/RPC 查询错误不是链上失败：只要当前账户、链和交易�
 
 当前安全重试切片验证为 27 个测试文件、175 项测试通过，TypeScript、ESLint、Diff 检查和 Next.js 16.2.9 生产构建通过。
 
+剪贴板只是一个不可信输入源，不是地址校验的捷径。`readTransferRecipientFromClipboard` 接受最小 `readText()` 接口，捕获 API 缺失与权限拒绝，先限制原始文本长度，再复用 `parseTransferRecipient`；只有成功结果包含规范化 Address，失败结果不会携带或回显剪贴板原文。组件点击粘贴会先废弃旧 Review，但不会自动发起 Review 或钱包请求。
+
+剪贴板读取是异步操作：每个 ETH/ERC-20 输入维护独立递增 request id，用户手动输入或组件卸载会使旧请求失效。只有返回时仍匹配最新 request id 的结果才能更新状态，因此权限弹窗或慢速剪贴板响应不能覆盖用户后来键入的地址。未决交易锁存在时粘贴按钮禁用，继续避免在结果未知期间制造新发送意图。
+
+当前安全剪贴板切片验证为 28 个测试文件、182 项测试通过，TypeScript、ESLint、Diff 检查和 Next.js 16.2.9 生产构建通过。
+
 ## 下一步
 
-本轮先 Review 安全重试未提交 Diff；确认后分别提交业务代码和恢复文档。下一代码切片实现收款地址的安全剪贴板输入：ETH/ERC-20 复用同一读取与校验逻辑，只有通过 checksum/零地址规则的文本才能写入表单，权限失败或非法内容显式反馈。Milestone 2 尚未结束，后续仍需地址簿、ENS、WalletConnect 与钱包选择；达到路线图退出条件时必须明确通知用户，再进入阶段 2 学习复盘。
+本轮先 Review 安全剪贴板未提交 Diff；确认后分别提交业务代码和恢复文档。下一代码切片先建立独立、版本化、按 chainId 隔离并严格校验的本地地址簿存储边界，再在后续切片接入选择 UI；不会把不同链联系人混成一个无命名空间列表。Milestone 2 尚未结束，后续仍需地址簿 UI、ENS、WalletConnect 与钱包选择；达到路线图退出条件时必须明确通知用户，再进入阶段 2 学习复盘。
 
 ## 工作约束
 
