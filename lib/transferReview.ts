@@ -18,6 +18,7 @@ export interface NativeTransferReview extends ReviewBase {
 
 export interface Erc20TransferReview extends ReviewBase {
   readonly kind: 'erc20'
+  readonly assetId: string
   readonly tokenAddress: Address
   readonly symbol: string
   readonly decimals: number

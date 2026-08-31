@@ -1,4 +1,6 @@
-export const DEMO_ERC20_ADDRESS = '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238' as const
+import { SEPOLIA_USDC_ASSET } from './assetRegistry'
+
+export const DEMO_ERC20_ADDRESS = SEPOLIA_USDC_ASSET.address
 
 // Demo-only recipients for exercising transfers on testnet; no real value at stake.
 // A/B feed BatchedTransferDemo's two-call batch, C is TokenTransferPanel's single-transfer target.

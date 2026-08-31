@@ -1,7 +1,6 @@
 'use client'
 
 import { getErrorMessage } from "@/lib/errors";
-import { DEMO_ERC20_ADDRESS } from "@/lib/constants";
 import { encodeFunctionData, erc20Abi, formatEther, formatUnits, type Hash, type ReplacementReason } from "viem";
 import { useEffect, useState } from "react";
 import { useBalance, useConnection, useEstimateFeesPerGas, useEstimateGas, useReadContract, useSendTransaction, useSimulateContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
@@ -15,6 +14,7 @@ import { parseErc20TransferInput } from "@/lib/erc20TransferInput";
 import { resolveTokenBalanceState } from "@/lib/tokenBalance";
 import { resolveNativeTransferBudget } from "@/lib/nativeTransferBudget";
 import { createTransferReview, type TransferReview } from "@/lib/transferReview";
+import { getSupportedErc20Asset, listSupportedErc20Assets } from "@/lib/assetRegistry";
 
 interface ReplacementInfo {
     reason: ReplacementReason
@@ -55,27 +55,21 @@ export function TokenTransferPanel() {
     })
     const [erc20Recipient, setErc20Recipient] = useState('')
     const [erc20Amount, setErc20Amount] = useState('')
+    const supportedErc20Assets = listSupportedErc20Assets(writeChain.id)
+    const [selectedErc20AssetId, setSelectedErc20AssetId] = useState(supportedErc20Assets[0]?.id ?? '')
+    const selectedErc20Asset = getSupportedErc20Asset(writeChain.id, selectedErc20AssetId)
 
-    const { data: tokenDecimals, error: tokenDecimalsError } = useReadContract({
-        address: DEMO_ERC20_ADDRESS,
+    const { data: onchainTokenDecimals, error: tokenDecimalsError } = useReadContract({
+        address: selectedErc20Asset?.address,
         abi: erc20Abi,
         functionName: 'decimals',
-        query: { enabled: isCorrectChain },
+        query: { enabled: isCorrectChain && !!selectedErc20Asset },
     })
-    const { data: rawTokenSymbol } = useReadContract({
-        address: DEMO_ERC20_ADDRESS,
-        abi: erc20Abi,
-        functionName: 'symbol',
-        query: { enabled: isCorrectChain },
-    })
-    const tokenSymbol = typeof rawTokenSymbol === 'string'
-        && rawTokenSymbol.length > 0
-        && rawTokenSymbol.length <= 12
-        && /^[\x20-\x7e]+$/.test(rawTokenSymbol)
-        ? rawTokenSymbol
-        : 'ERC-20'
+    const tokenDecimals = selectedErc20Asset?.decimals
+    const tokenSymbol = selectedErc20Asset?.symbol ?? 'ERC-20'
+    const isTokenMetadataVerified = tokenDecimals !== undefined && onchainTokenDecimals === tokenDecimals
     const erc20TransferInput = parseErc20TransferInput(erc20Recipient, erc20Amount, tokenDecimals)
-    const isErc20RequestReady = !!address && isCorrectChain && erc20TransferInput.ok
+    const isErc20RequestReady = !!address && isCorrectChain && !!selectedErc20Asset && isTokenMetadataVerified && erc20TransferInput.ok
     const erc20CallData = erc20TransferInput.ok
         ? encodeFunctionData({
             abi: erc20Abi,
@@ -86,7 +80,7 @@ export function TokenTransferPanel() {
     const { data: estimatedErc20Gas, error: erc20GasError } = useEstimateGas({
         account: address,
         chainId: writeChain.id,
-        to: DEMO_ERC20_ADDRESS,
+        to: selectedErc20Asset?.address,
         data: erc20CallData,
         query: { enabled: isErc20RequestReady },
     })
@@ -109,12 +103,12 @@ export function TokenTransferPanel() {
     })
 
     const { data: tokenBalance, error: tokenBalanceError, refetch: refetchTokenBalance } = useReadContract({
-        address: DEMO_ERC20_ADDRESS,
+        address: selectedErc20Asset?.address,
         abi: erc20Abi,
         functionName: 'balanceOf',
         args: address ? [address] : undefined,
         query: {
-            enabled: !!address && isCorrectChain,  // 合约地址只在目标链上有确定含义
+            enabled: !!address && isCorrectChain && !!selectedErc20Asset && isTokenMetadataVerified,
         },
     })
     const tokenBalanceState = resolveTokenBalanceState(
@@ -122,11 +116,11 @@ export function TokenTransferPanel() {
         tokenBalance,
     )
     const { error: simulateError } = useSimulateContract({
-        address: DEMO_ERC20_ADDRESS,
+        address: selectedErc20Asset?.address,
         abi: erc20Abi,
         functionName: 'transfer',
         args: erc20TransferInput.ok ? [erc20TransferInput.recipient, erc20TransferInput.amount] : undefined,
-        query: { enabled: !!address && isCorrectChain && erc20TransferInput.ok },
+        query: { enabled: isErc20RequestReady },
     })
     const activeReview = review?.contextKey !== reviewContextKey
         ? null
@@ -137,7 +131,11 @@ export function TokenTransferPanel() {
                 ? review
                 : null
             : tokenBalance === review.balance
-                && tokenDecimals === review.decimals
+                && selectedErc20Asset?.id === review.assetId
+                && selectedErc20Asset.address === review.tokenAddress
+                && selectedErc20Asset.symbol === review.symbol
+                && selectedErc20Asset.decimals === review.decimals
+                && isTokenMetadataVerified
                 && nativeBalance?.value === review.nativeBalance
                 && erc20GasBudget.state === 'sufficient'
                 && erc20GasBudget.gasCostLimit === review.gasCostLimit
@@ -244,15 +242,16 @@ export function TokenTransferPanel() {
     }
 
     function openErc20Review() {
-        if (!reviewContextKey || !chainId || !isCorrectChain || !erc20TransferInput.ok || tokenBalanceState !== 'sufficient' || erc20GasBudget.state !== 'sufficient' || tokenBalance === undefined || tokenDecimals === undefined || nativeBalance === undefined || simulateError) return
+        if (!reviewContextKey || !chainId || !isCorrectChain || !selectedErc20Asset || !isTokenMetadataVerified || !erc20TransferInput.ok || tokenBalanceState !== 'sufficient' || erc20GasBudget.state !== 'sufficient' || tokenBalance === undefined || nativeBalance === undefined || simulateError) return
         setReview(createTransferReview({
             kind: 'erc20',
+            assetId: selectedErc20Asset.id,
             contextKey: reviewContextKey,
             chainId,
             chainName: writeChain.name,
-            tokenAddress: DEMO_ERC20_ADDRESS,
+            tokenAddress: selectedErc20Asset.address,
             symbol: tokenSymbol,
-            decimals: tokenDecimals,
+            decimals: selectedErc20Asset.decimals,
             recipient: erc20TransferInput.recipient,
             displayAmount: erc20Amount.trim(),
             amount: erc20TransferInput.amount,
@@ -264,9 +263,11 @@ export function TokenTransferPanel() {
 
     function confirmErc20Transfer() {
         if (!address || !isCorrectChain || activeReview?.kind !== 'erc20' || tokenBalance === undefined || nativeBalance === undefined || activeReview.amount > tokenBalance || activeReview.gasCostLimit > nativeBalance.value) return
+        const registeredAsset = getSupportedErc20Asset(activeReview.chainId, activeReview.assetId)
+        if (!registeredAsset || registeredAsset.address !== activeReview.tokenAddress || registeredAsset.decimals !== activeReview.decimals) return
         setTransferReplacement(null)
         writeContract({
-            address: activeReview.tokenAddress,
+            address: registeredAsset.address,
             abi: erc20Abi,
             functionName: 'transfer',
             args: [activeReview.recipient, activeReview.amount],
@@ -349,10 +350,32 @@ export function TokenTransferPanel() {
                 </div>
             )}
 
+            <div className="space-y-1">
+                <label className="text-sm font-medium" htmlFor="erc20-asset">ERC-20 资产</label>
+                <select
+                    id="erc20-asset"
+                    className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30"
+                    value={selectedErc20AssetId}
+                    onChange={(event) => {
+                        setSelectedErc20AssetId(event.target.value)
+                        setErc20Amount('')
+                        setReview(null)
+                    }}
+                    disabled={isTransferBusy}
+                >
+                    {supportedErc20Assets.map((asset) => (
+                        <option key={`${asset.chainId}:${asset.id}`} value={asset.id}>
+                            {asset.symbol} — {asset.name}
+                        </option>
+                    ))}
+                </select>
+                <p className="text-xs text-muted-foreground">只允许使用 {writeChain.name} 资产 Registry 中的合约。</p>
+            </div>
+
             <p className="text-sm text-gray-500 dark:text-neutral-400">
-                {tokenBalance !== undefined && tokenDecimals !== undefined
+                {tokenBalance !== undefined && isTokenMetadataVerified
                     ? `${tokenSymbol} 余额: ${formatUnits(tokenBalance, tokenDecimals)}`
-                    : '正在读取代币信息…'}
+                    : selectedErc20Asset ? `正在验证 ${tokenSymbol} 资产信息…` : '当前没有可用的受支持资产'}
             </p>
 
             <div className="space-y-2">
@@ -385,7 +408,8 @@ export function TokenTransferPanel() {
                     {!!erc20Amount && !erc20TransferInput.ok && erc20TransferInput.amountError && (
                         <p className="text-sm text-destructive">{erc20TransferInput.amountError}</p>
                     )}
-                    {tokenDecimalsError && <p className="text-sm text-destructive">无法读取代币精度，已阻止转账</p>}
+                    {tokenDecimalsError && <p className="text-sm text-destructive">无法验证 Registry 中的代币精度，已阻止转账</p>}
+                    {onchainTokenDecimals !== undefined && !isTokenMetadataVerified && <p className="text-sm text-destructive">链上代币精度与 Registry 不一致，已阻止转账</p>}
                     {tokenBalanceError && <p className="text-sm text-destructive">无法读取代币余额，已阻止转账</p>}
                     {nativeBalanceError && <p className="text-sm text-destructive">无法读取 Gas 余额，已阻止 ERC-20 转账</p>}
                     {(erc20GasError || feesError) && <p className="text-sm text-destructive">无法估算 ERC-20 Gas，已阻止转账</p>}
@@ -401,7 +425,7 @@ export function TokenTransferPanel() {
                         <p className="text-sm text-destructive">ETH 不足以支付 ERC-20 Gas，预算还差 {formatEther(erc20GasBudget.shortfall)} ETH</p>
                     )}
                 </div>
-                <Button className="w-full" onClick={openErc20Review} disabled={!address || !isCorrectChain || !erc20TransferInput.ok || tokenBalanceState !== 'sufficient' || erc20GasBudget.state !== 'sufficient' || !!simulateError || isTransferBusy}>
+                <Button className="w-full" onClick={openErc20Review} disabled={!address || !isCorrectChain || !selectedErc20Asset || !isTokenMetadataVerified || !erc20TransferInput.ok || tokenBalanceState !== 'sufficient' || erc20GasBudget.state !== 'sufficient' || !!simulateError || isTransferBusy}>
                     {transferState === 'awaiting-wallet' && '等待钱包确认…'}
                     {transferState === 'confirming' && '链上确认中…'}
                     {!isTransferBusy && '预览 ERC-20 转账'}
@@ -416,7 +440,7 @@ export function TokenTransferPanel() {
                 {transferErrorMessage && (
                     <div className="flex items-center gap-2">
                         <p className="text-sm text-destructive">{transferErrorMessage}</p>
-                        <Button variant="ghost" onClick={openErc20Review} disabled={!address || !isCorrectChain || !erc20TransferInput.ok || tokenBalanceState !== 'sufficient' || isTransferBusy}>重新预览</Button>
+                        <Button variant="ghost" onClick={openErc20Review} disabled={!address || !isCorrectChain || !selectedErc20Asset || !isTokenMetadataVerified || !erc20TransferInput.ok || tokenBalanceState !== 'sufficient' || isTransferBusy}>重新预览</Button>
                     </div>
                 )}
             </div>

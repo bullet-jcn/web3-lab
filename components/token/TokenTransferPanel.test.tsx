@@ -10,6 +10,7 @@ type ReplacementCallback = (event: {
 
 const ACCOUNT = '0x0000000000000000000000000000000000000001'
 const CHAIN_ID = 11155111
+const USDC_ADDRESS = '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238'
 const TRANSFER_HASH = `0x${'01'.repeat(32)}` as Hash
 const SEND_HASH = `0x${'02'.repeat(32)}` as Hash
 const REPLACEMENT_HASH = `0x${'03'.repeat(32)}` as Hash
@@ -22,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   refetchTokenBalance: vi.fn(),
   refetchNativeBalance: vi.fn(),
   nativeBalance: BigInt('1000000000000000000'),
+  tokenDecimals: 6,
 }))
 
 vi.mock('wagmi', () => ({
@@ -38,10 +40,8 @@ vi.mock('wagmi', () => ({
   }),
   useReadContract: (options: { functionName: string }) => ({
     data: options.functionName === 'decimals'
-      ? 6
-      : options.functionName === 'symbol'
-        ? 'USDC'
-        : BigInt(1_500_000),
+      ? mocks.tokenDecimals
+      : BigInt(1_500_000),
     error: null,
     refetch: options.functionName === 'balanceOf' ? mocks.refetchTokenBalance : vi.fn(),
   }),
@@ -94,6 +94,7 @@ describe('TokenTransferPanel pending transactions', () => {
     mocks.refetchTokenBalance.mockReset()
     mocks.refetchNativeBalance.mockReset()
     mocks.nativeBalance = BigInt('1000000000000000000')
+    mocks.tokenDecimals = 6
   })
 
   it('restores both transfer hashes and resumes receipt queries', async () => {
@@ -110,6 +111,8 @@ describe('TokenTransferPanel pending transactions', () => {
     mocks.writeContract.mockImplementation((_request, options) => options.onSuccess(TRANSFER_HASH))
     render(<TokenTransferPanel />)
 
+    expect(screen.getByLabelText('ERC-20 资产')).toHaveValue('usdc')
+    expect(screen.getByRole('option', { name: 'USDC — USD Coin' })).toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('ERC-20 收款地址'), { target: { value: '0x8F7b86Fe8f1a5CaB00Aa66cBb3E3BBF6a79535EE' } })
     fireEvent.change(screen.getByLabelText('USDC 数量'), { target: { value: '1.25' } })
     fireEvent.click(screen.getByRole('button', { name: '预览 ERC-20 转账' }))
@@ -123,9 +126,34 @@ describe('TokenTransferPanel pending transactions', () => {
     await waitFor(() => expect(localStorage.getItem(storageKey('erc20-transfer'))).toContain(TRANSFER_HASH))
     expect(screen.getByText('链上确认中…')).toBeInTheDocument()
     expect(mocks.writeContract).toHaveBeenCalledWith(expect.objectContaining({
+      address: USDC_ADDRESS,
       functionName: 'transfer',
       args: ['0x8F7b86Fe8f1a5CaB00Aa66cBb3E3BBF6a79535EE', BigInt(1_250_000)],
     }), expect.any(Object))
+  })
+
+  it('fails closed when the asset selector does not resolve through the Registry', () => {
+    render(<TokenTransferPanel />)
+
+    fireEvent.change(screen.getByLabelText('ERC-20 资产'), { target: { value: 'attacker-controlled-address' } })
+    fireEvent.change(screen.getByLabelText('ERC-20 收款地址'), { target: { value: '0x8F7b86Fe8f1a5CaB00Aa66cBb3E3BBF6a79535EE' } })
+    fireEvent.change(screen.getByLabelText('ERC-20 数量'), { target: { value: '1' } })
+
+    expect(screen.getByText('当前没有可用的受支持资产')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '预览 ERC-20 转账' })).toBeDisabled()
+    expect(mocks.writeContract).not.toHaveBeenCalled()
+  })
+
+  it('blocks the transfer when onchain decimals do not match the Registry', () => {
+    mocks.tokenDecimals = 18
+    render(<TokenTransferPanel />)
+
+    fireEvent.change(screen.getByLabelText('ERC-20 收款地址'), { target: { value: '0x8F7b86Fe8f1a5CaB00Aa66cBb3E3BBF6a79535EE' } })
+    fireEvent.change(screen.getByLabelText('USDC 数量'), { target: { value: '1' } })
+
+    expect(screen.getByText('链上代币精度与 Registry 不一致，已阻止转账')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '预览 ERC-20 转账' })).toBeDisabled()
+    expect(mocks.writeContract).not.toHaveBeenCalled()
   })
 
   it('shows formatted token balance and blocks excess precision', () => {
