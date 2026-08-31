@@ -45,15 +45,18 @@
 - 普通 ETH/ERC-20 转账已加入 Chain Registry 驱动的区块浏览器证据链接：pending 与成功指向当前交易 Hash，加速、取消或内容替换后指向 replacement Hash；未知 chainId 不猜测 Explorer URL，外部链接使用新标签页与 `noopener noreferrer`。
 - 普通 ETH/ERC-20 转账已区分提交错误与 Receipt 观察错误：钱包未产生 Hash 前失败可重新 Review；已有 Hash 后查询失败显示“结果未知”、保留持久化记录并锁住发送，只允许对同一 Hash 调用 Receipt `refetch`。
 - ETH/ERC-20 收款地址已加入安全剪贴板入口：剪贴板文本经过共享 checksum、格式与零地址校验后才写入表单；不可用、权限拒绝、非法或超长内容显式失败且不覆盖原值，异步读取的迟到结果不能覆盖较新的手动输入。
+- 建立版本化且按 `chainId` 隔离的本地地址簿：严格校验 schema、checksum 地址、零地址、名称和 50 条容量边界；损坏、跨链或未知版本记录 fail closed。管理 UI 可将联系人明确填入 ETH 或 ERC-20 表单，但不会自动进入 Review 或请求钱包，未决交易期间选择入口保持锁定。
 
 ## 当前未提交业务文件
 
-当前安全剪贴板切片停在 Review 边界，尚未提交：
+当前地址簿存储与 UI 合并切片停在 Review 边界，尚未提交：
 
 - `components/token/TokenTransferPanel.tsx`
 - `components/token/TokenTransferPanel.test.tsx`
-- `lib/transferClipboard.ts`
-- `lib/transferClipboard.test.ts`
+- `components/token/TransferAddressBook.tsx`
+- `components/token/TransferAddressBook.test.tsx`
+- `lib/addressBookStorage.ts`
+- `lib/addressBookStorage.test.ts`
 - `docs/LEARNING_PROGRESS.md`
 
 `docs/PRODUCT_SPEC.md` 与 `docs/PRODUCTION_ROADMAP.md` 是此前已有的未跟踪产品文档，不属于当前业务步骤。
@@ -88,6 +91,9 @@
 - `15ab12e feat: link transfer explorer evidence`
 - `1e1d2f7 docs: checkpoint transfer explorer evidence`
 - `f31c92b fix: retry transfer receipt observation`
+- `298367b docs: checkpoint safe receipt retries`
+- `2d06878 feat: validate pasted transfer recipients`
+- `51a2d77 docs: checkpoint safe transfer clipboard`
 - `298367b docs: checkpoint safe receipt retries`
 
 ## 当前步骤的设计结论
@@ -166,9 +172,17 @@ Receipt/RPC 查询错误不是链上失败：只要当前账户、链和交易�
 
 当前安全剪贴板切片验证为 28 个测试文件、182 项测试通过，TypeScript、ESLint、Diff 检查和 Next.js 16.2.9 生产构建通过。
 
+地址簿不是钱包身份系统，也不证明地址背后的人是谁；它只是用户在当前浏览器保存的公开标签与 checksum 地址映射。存储键和 payload 都包含 `chainId`，读取时还要求版本、字段集合、链 ID、规范化名称、checksum 地址、唯一地址及容量全部匹配。任何损坏、篡改、跨链内容或未知版本都返回空列表，不会把未经校验的地址送入转账表单。
+
+地址是联系人唯一身份：再次保存同一地址会更新名称而不是创建重复项。名称只承担展示作用，trim 后限制为 1–40 个 Unicode 字符并拒绝控制字符；每条链最多 50 个联系人，浏览器读取、配额或权限异常都转换成显式 UI 错误。地址簿不保存金额、calldata、交易状态、私钥或签名。
+
+联系人选择只执行一次受控表单填充，同时废弃旧 Review、旧剪贴板错误和仍在等待的剪贴板 request id；不会自动预览或发起钱包请求。ETH 与 ERC-20 使用独立按钮，任何一种转账存在未决 Hash 时两个选择入口均锁住，避免结果未知期间悄悄建立新的发送意图；保存和删除联系人仍是与链上交易无关的本地操作。
+
+当前地址簿切片验证为 30 个测试文件、200 项测试通过，TypeScript、ESLint、Diff 检查和 Next.js 16.2.9 生产构建通过。首次构建因受限环境无法下载 Google Geist 字体而失败，允许网络后同一代码构建成功；该失败与业务代码无关。
+
 ## 下一步
 
-本轮先 Review 安全剪贴板未提交 Diff；确认后分别提交业务代码和恢复文档。下一代码切片先建立独立、版本化、按 chainId 隔离并严格校验的本地地址簿存储边界，再在后续切片接入选择 UI；不会把不同链联系人混成一个无命名空间列表。Milestone 2 尚未结束，后续仍需地址簿 UI、ENS、WalletConnect 与钱包选择；达到路线图退出条件时必须明确通知用户，再进入阶段 2 学习复盘。
+本轮先 Review 地址簿存储与 UI 未提交 Diff；确认后分别提交业务代码和恢复文档。下一代码切片处理 ENS：解析结果必须绑定当前输入和链上下文，解析失败或旧异步结果不能覆盖较新的手动地址，也不能绕过既有 checksum、零地址、Review 与交易锁边界。Milestone 2 尚未结束，后续仍需 ENS、WalletConnect 与钱包选择以及最终测试网退出审计；达到路线图退出条件时必须明确通知用户，再进入阶段 2 学习复盘。
 
 ## 工作约束
 
