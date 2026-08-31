@@ -4,7 +4,7 @@
 
 ## 当前目标
 
-推进 Milestone 2 / Batch C 的真实转账工作流，并在每一步保留可 Review 的未提交 Diff。第一阶段完整学习复盘已经完成：钱包身份、链边界、交易生命周期、replacement/partial success、持久化边界、EIP-5792、授权与 AI 边界、API 安全以及测试证据均已串联复习。
+Milestone 2 / Batch C 的代码实现与自动化退出审计已经完成。下一阶段先进行 Milestone 2 整体学习复盘，把真实转账表单、金额与余额、Gas、Review、恢复状态、地址输入来源、ENS 和钱包连接层串成一套可解释架构，再决定是否进入 Milestone 3。
 
 ## 已完成
 
@@ -47,15 +47,22 @@
 - ETH/ERC-20 收款地址已加入安全剪贴板入口：剪贴板文本经过共享 checksum、格式与零地址校验后才写入表单；不可用、权限拒绝、非法或超长内容显式失败且不覆盖原值，异步读取的迟到结果不能覆盖较新的手动输入。
 - 建立版本化且按 `chainId` 隔离的本地地址簿：严格校验 schema、checksum 地址、零地址、名称和 50 条容量边界；损坏、跨链或未知版本记录 fail closed。管理 UI 可将联系人明确填入 ETH 或 ERC-20 表单，但不会自动进入 Review 或请求钱包，未决交易期间选择入口保持锁定。
 - ETH/ERC-20 收款输入已加入显式 ENS 解析：名称先经 viem ENS normalization 与 255-byte 边界校验，再固定查询写链；只有当前请求、当前输入和解析链仍一致时，返回地址才经 checksum/零地址校验后回填。未注册、RPC 失败或迟到结果均 fail closed，不会自动进入 Review 或钱包请求。
+- 钱包连接层已接入可配置 WalletConnect 与明确的钱包选择：injected、EIP-6963 发现的钱包和 WalletConnect 作为独立 connector 展示；连接尝试、Wagmi 已连接、自动恢复、用户拒绝、connector 缺失、WalletConnect 未配置和切链失败使用不同状态，不再固定选择 `connectors[0]` 或由组件自行宣布“连接成功”。
+- Milestone 2 最终代码审计已逐条覆盖路线图六项：validated forms、decimals、metadata/balance/max、address book/clipboard/ENS/checksum、Gas/Review/Explorer/retry/replacement 和 WalletConnect/selection 均有实现与自动化证据。真实移动钱包二维码配对与真实测试网交易哈希尚无仓库证据，继续作为手动发布验证边界明确保留，不虚构为已完成。
 
 ## 当前未提交业务文件
 
-当前 ENS 安全解析切片停在 Review 边界，尚未提交：
+当前 Milestone 2 钱包连接收尾代码待按用户授权提交：
 
-- `components/token/TokenTransferPanel.tsx`
-- `components/token/TokenTransferPanel.test.tsx`
-- `lib/transferEns.ts`
-- `lib/transferEns.test.ts`
+- `.env.example`
+- `README.md`
+- `components/wallet/WalletConnectPanel.tsx`
+- `components/wallet/WalletConnectPanel.test.tsx`
+- `lib/wagmiConfig.ts`
+- `lib/walletConnection.ts`
+- `lib/walletConnection.test.ts`
+- `package.json`
+- `package-lock.json`
 - `docs/LEARNING_PROGRESS.md`
 
 `docs/PRODUCT_SPEC.md` 与 `docs/PRODUCTION_ROADMAP.md` 是此前已有的未跟踪产品文档，不属于当前业务步骤。
@@ -95,6 +102,8 @@
 - `51a2d77 docs: checkpoint safe transfer clipboard`
 - `0177ee9 feat: add chain-scoped transfer address book`
 - `3572b9c docs: checkpoint transfer address book`
+- `675c690 feat: resolve transfer recipients with ENS`
+- `f5ffa69 docs: checkpoint transfer ENS resolution`
 
 ## 当前步骤的设计结论
 
@@ -188,9 +197,17 @@ ENS 解析只建立“名称在指定链上当前解析为某地址”的查询�
 
 当前 ENS 切片验证为 31 个测试文件、210 项测试通过，TypeScript、ESLint、Diff 检查和 Next.js 16.2.9 生产构建通过。
 
+Wallet connector 是连接协议适配器，不是“钱包已经连接”的布尔开关。选择器把 injected/EIP-6963 与 WalletConnect connector 分开交给用户；`connectAsync` 只代表一次尝试，UI 只有在 `useConnection` 报告真实 `isConnected`、账户和 active connector 后才展示已连接。`reconnecting` 单独显示恢复状态并保持写入口不可用，避免刷新恢复期间短暂误报断开或可操作。
+
+WalletConnect 使用 Wagmi 官方 connector 与 `@walletconnect/ethereum-provider` 运行时依赖。公开的 Reown project ID 通过 `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` 在构建时注入；空值或示例 placeholder 会让 connector 根本不注册，选择器明确显示“未配置”，不会等用户点击后才产生必然失败。项目 ID 是公开客户端标识，不是私钥，但仍属于按环境配置，不写死在源码。
+
+连接错误经过确定性归约：用户拒绝、缺少 injected provider、WalletConnect pairing/session 失败和未知错误分别使用固定文案，未知上游内部细节不回显。切链仍是独立钱包请求，当前链按钮禁用，失败不会被当作连接失败或交易失败。断开连接只清理 connector connection；SIWE session 仍由既有钱包/session 一致性边界独立处理。
+
+Milestone 2 最终自动化证据：33 个测试文件、225 项测试通过，TypeScript、ESLint、Diff 检查、离线 `npm ci --dry-run`、离线 production dependency audit（0 vulnerabilities）和启用 WalletConnect connector 分支的 Next.js 16.2.9 生产构建通过；本地生产服务返回 HTTP 200。Browser 技能确认当前会话没有可用浏览器实例，因此没有伪装可视化点击证据；仓库也没有真实 WalletConnect 二维码配对或普通转账测试网 Hash，这两项必须在获得真实 Reown project ID 与用户钱包授权后手动补证。
+
 ## 下一步
 
-本轮先 Review ENS 安全解析未提交 Diff；确认后分别提交业务代码和恢复文档。下一代码切片处理钱包连接层：在保留 injected wallet 的基础上评估并接入 WalletConnect，提供明确的钱包选择、连接中、拒绝和不可用状态，不把“点击连接”误报成“已连接”。随后执行 Milestone 2 最终测试网退出审计；达到路线图退出条件时必须明确通知用户，再进入阶段 2 学习复盘。
+按用户本轮授权分别提交钱包连接业务代码与 Milestone 2 恢复文档。提交后明确通知 Milestone 2 代码阶段结束，并开始整体学习复盘；不直接进入 Milestone 3。GitHub 当前 DNS 解析失败只影响 push，不影响本地 commit，恢复网络后再推送。
 
 ## 工作约束
 
