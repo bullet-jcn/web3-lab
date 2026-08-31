@@ -42,18 +42,17 @@
 - 普通 ERC-20 转账已接入按 `chainId + assetId` 查询的受支持资产 Registry 与资产选择器：地址、symbol 和 decimals 由应用 allowlist 决定，链上 `decimals()` 只用于一致性校验；未知 selector、未知链或 metadata 不一致均 fail closed，Review 与钱包请求会再次绑定 Registry 资产。
 - 第一阶段学习复盘已完成，能够从身份、链、意图、执行、观察五个上下文解释架构，并区分单元、组件、Route 集成、生产构建证据及尚未覆盖的真实钱包/E2E/可观测性边界。
 - ERC-20 与原生 ETH 已加入确定性的“最大金额”操作：Token 直接格式化整数最小单位余额；ETH 使用有效收款地址的独立 1 wei Gas 探测，从余额扣除 `gas × maxFeePerGas` 后填入候选值，再由最终 payload 重新估算并经过 Review 边界。
+- 普通 ETH/ERC-20 转账已加入 Chain Registry 驱动的区块浏览器证据链接：pending 与成功指向当前交易 Hash，加速、取消或内容替换后指向 replacement Hash；未知 chainId 不猜测 Explorer URL，外部链接使用新标签页与 `noopener noreferrer`。
 
 ## 当前未提交业务文件
 
-当前最大金额切片停在 Review 边界，尚未提交：
+当前 Explorer 证据链接切片停在 Review 边界，尚未提交：
 
 - `components/token/TokenTransferPanel.tsx`
 - `components/token/TokenTransferPanel.test.tsx`
-- `lib/transferRecipient.ts`
-- `lib/nativeTransferInput.ts`
-- `lib/erc20TransferInput.ts`
-- `lib/nativeTransferBudget.ts`
-- `lib/nativeTransferBudget.test.ts`
+- `components/token/TransactionExplorerLink.tsx`
+- `lib/chains.ts`
+- `lib/chains.test.ts`
 - `docs/LEARNING_PROGRESS.md`
 
 `docs/PRODUCT_SPEC.md` 与 `docs/PRODUCTION_ROADMAP.md` 是此前已有的未跟踪产品文档，不属于当前业务步骤。
@@ -83,6 +82,8 @@
 - `55b2ed7 feat: reserve gas for ERC-20 transfers`
 - `a56b8a5 feat: register supported transfer assets`
 - `231533b docs: checkpoint supported asset registry`
+- `5b6d396 feat: fill safe maximum transfer amounts`
+- `dbda1d7 docs: checkpoint maximum transfer amounts`
 
 ## 当前步骤的设计结论
 
@@ -142,9 +143,15 @@ ETH 最大值使用独立的 1 wei 请求探测收款路径 Gas，不复用用�
 
 当前最大金额切片验证为 27 个测试文件、171 项测试通过，TypeScript、ESLint、Diff 检查和 Next.js 16.2.9 生产构建通过。
 
+Explorer URL 不是 UI 自己拼接的 Etherscan 常量：`getTransactionExplorerUrl(chainId, hash)` 只从当前 `ACTIVE_CHAINS` 配置中的 viem `blockExplorers.default.url` 生成，未知或未启用链返回 `undefined`。外部交易链接展示缩略 Hash，但 title 和无障碍名称保留完整 Hash；pending、success、receipt error 只要仍有受支持链上的公开 Hash 都可查看证据。
+
+Replacement 证据必须跟随替换交易而不是原交易。普通转账的 replacement 状态现在额外保存产生回调时的账户/链/交易类型 context key，只有仍匹配当前上下文才参与状态机、文案和 Explorer 链接；这防止旧账户或旧链的延迟回调短暂生成错误链链接。`repriced`、`cancelled` 和 `replaced` 都优先展示 replacement Hash。
+
+当前 Explorer 证据链接切片验证为 27 个测试文件、172 项测试通过，TypeScript、ESLint、Diff 检查和 Next.js 16.2.9 生产构建通过。
+
 ## 下一步
 
-本轮先 Review 最大金额未提交 Diff；确认后分别提交业务代码和恢复文档。下一代码切片优先补交易 Hash 的区块浏览器证据链接，使 pending、成功和 replacement 状态都能跳转到统一 Chain Registry 对应的 Explorer。Milestone 2 尚未结束，后续仍需地址簿/剪贴板/ENS、重试体验、WalletConnect 与钱包选择；达到路线图退出条件时必须明确通知用户，再进入阶段 2 学习复盘。
+本轮先 Review Explorer 证据链接未提交 Diff；确认后分别提交业务代码和恢复文档。下一代码切片实现安全重试：钱包请求在产生 Hash 前失败可以重新 Review；已有 Hash 后 Receipt/RPC 查询错误只能重试查询并继续锁住发送，绝不把 unknown 当作链上失败后盲目重发。Milestone 2 尚未结束，后续仍需地址簿/剪贴板/ENS、WalletConnect 与钱包选择；达到路线图退出条件时必须明确通知用户，再进入阶段 2 学习复盘。
 
 ## 工作约束
 
