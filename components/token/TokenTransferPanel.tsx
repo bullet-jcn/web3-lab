@@ -16,8 +16,10 @@ import { resolveNativeMaxTransfer, resolveNativeTransferBudget } from "@/lib/nat
 import { createTransferReview, type TransferReview } from "@/lib/transferReview";
 import { getSupportedErc20Asset, listSupportedErc20Assets } from "@/lib/assetRegistry";
 import { parseTransferRecipient } from "@/lib/transferRecipient";
+import { TransactionExplorerLink } from "@/components/token/TransactionExplorerLink";
 
 interface ReplacementInfo {
+    contextKey: string
     reason: ReplacementReason
     hash: Hash
 }
@@ -168,7 +170,7 @@ export function TokenTransferPanel() {
     } = useWaitForTransactionReceipt({
         hash: transferHash,
         onReplaced: ({ reason, transaction }) => {
-            setTransferReplacement({ reason, hash: transaction.hash })
+            if (transferContextKey) setTransferReplacement({ contextKey: transferContextKey, reason, hash: transaction.hash })
             handleReplacement('erc20-transfer', transferContextKey, reason, transaction.hash, setTrackedTransfer)
         },
     })
@@ -184,7 +186,7 @@ export function TokenTransferPanel() {
     } = useWaitForTransactionReceipt({
         hash: sendHash,
         onReplaced: ({ reason, transaction }) => {
-            setSendReplacement({ reason, hash: transaction.hash })
+            if (sendContextKey) setSendReplacement({ contextKey: sendContextKey, reason, hash: transaction.hash })
             handleReplacement('native-transfer', sendContextKey, reason, transaction.hash, setTrackedSend)
         },
     })
@@ -337,24 +339,28 @@ export function TokenTransferPanel() {
 
     const transferError = writeError ?? transferReceiptError
     const sendTransactionError = sendError ?? sendReceiptError
+    const activeTransferReplacement = transferReplacement?.contextKey === transferContextKey ? transferReplacement : null
+    const activeSendReplacement = sendReplacement?.contextKey === sendContextKey ? sendReplacement : null
     const transferState = resolveTransactionState({
         isAwaitingWallet: isAwaitingTransferWallet,
         isConfirming: isConfirmingTransfer,
         isSuccess: isTransferConfirmed,
         error: transferError,
-        replacementReason: transferReplacement?.reason,
+        replacementReason: activeTransferReplacement?.reason,
     })
     const sendState = resolveTransactionState({
         isAwaitingWallet: isAwaitingSendWallet,
         isConfirming: isConfirmingSend,
         isSuccess: isSendConfirmed,
         error: sendTransactionError,
-        replacementReason: sendReplacement?.reason,
+        replacementReason: activeSendReplacement?.reason,
     })
     const transferErrorMessage = getErrorMessage(transferError)
     const sendErrorMessage = getErrorMessage(sendTransactionError)
-    const transferReplacementMessage = getReplacementMessage(transferReplacement?.reason)
-    const sendReplacementMessage = getReplacementMessage(sendReplacement?.reason)
+    const transferReplacementMessage = getReplacementMessage(activeTransferReplacement?.reason)
+    const sendReplacementMessage = getReplacementMessage(activeSendReplacement?.reason)
+    const transferExplorerHash = activeTransferReplacement?.hash ?? transferHash
+    const sendExplorerHash = activeSendReplacement?.hash ?? sendHash
     const isTransferBusy = transferState === 'awaiting-wallet' || transferState === 'confirming'
     const isSendBusy = sendState === 'awaiting-wallet' || sendState === 'confirming'
 
@@ -469,10 +475,17 @@ export function TokenTransferPanel() {
                 {simulateError && <p className="text-sm text-orange-500">预计会失败，暂时无法转账</p>}
                 {transferState === 'success' && <p className="text-sm text-emerald-300">转账成功!</p>}
                 {transferReplacementMessage && (
-                    <p className={transferReplacement?.reason === 'repriced' ? 'text-sm text-muted-foreground' : 'text-sm text-orange-600 dark:text-orange-400'}>
+                    <p className={activeTransferReplacement?.reason === 'repriced' ? 'text-sm text-muted-foreground' : 'text-sm text-orange-600 dark:text-orange-400'}>
                         {transferReplacementMessage}
                     </p>
                 )}
+                <TransactionExplorerLink
+                    chainId={chainId}
+                    hash={transferExplorerHash}
+                    label={activeTransferReplacement
+                        ? '查看 ERC-20 替换交易'
+                        : transferState === 'success' ? '查看已确认 ERC-20 交易' : '查看 ERC-20 交易'}
+                />
                 {transferErrorMessage && (
                     <div className="flex items-center gap-2">
                         <p className="text-sm text-destructive">{transferErrorMessage}</p>
@@ -546,10 +559,17 @@ export function TokenTransferPanel() {
                 </Button>
                 {sendState === 'success' && <p className="text-sm text-emerald-300">发送成功!</p>}
                 {sendReplacementMessage && (
-                    <p className={sendReplacement?.reason === 'repriced' ? 'text-sm text-muted-foreground' : 'text-sm text-orange-600 dark:text-orange-400'}>
+                    <p className={activeSendReplacement?.reason === 'repriced' ? 'text-sm text-muted-foreground' : 'text-sm text-orange-600 dark:text-orange-400'}>
                         {sendReplacementMessage}
                     </p>
                 )}
+                <TransactionExplorerLink
+                    chainId={chainId}
+                    hash={sendExplorerHash}
+                    label={activeSendReplacement
+                        ? '查看 ETH 替换交易'
+                        : sendState === 'success' ? '查看已确认 ETH 交易' : '查看 ETH 交易'}
+                />
                 {sendErrorMessage && <p className="text-sm text-destructive">{sendErrorMessage}</p>}
             </div>
 

@@ -11,6 +11,7 @@ type ReplacementCallback = (event: {
 const ACCOUNT = '0x0000000000000000000000000000000000000001'
 const CHAIN_ID = 11155111
 const USDC_ADDRESS = '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238'
+const EXPLORER_URL = 'https://sepolia.etherscan.io/tx'
 const TRANSFER_HASH = `0x${'01'.repeat(32)}` as Hash
 const SEND_HASH = `0x${'02'.repeat(32)}` as Hash
 const REPLACEMENT_HASH = `0x${'03'.repeat(32)}` as Hash
@@ -127,6 +128,10 @@ describe('TokenTransferPanel pending transactions', () => {
 
     await waitFor(() => expect(localStorage.getItem(storageKey('erc20-transfer'))).toContain(TRANSFER_HASH))
     expect(screen.getByText('链上确认中…')).toBeInTheDocument()
+    const explorerLink = screen.getByRole('link', { name: `查看 ERC-20 交易 ${TRANSFER_HASH}` })
+    expect(explorerLink).toHaveAttribute('href', `${EXPLORER_URL}/${TRANSFER_HASH}`)
+    expect(explorerLink).toHaveAttribute('target', '_blank')
+    expect(explorerLink).toHaveAttribute('rel', 'noopener noreferrer')
     expect(mocks.writeContract).toHaveBeenCalledWith(expect.objectContaining({
       address: USDC_ADDRESS,
       functionName: 'transfer',
@@ -217,6 +222,10 @@ describe('TokenTransferPanel pending transactions', () => {
 
     await waitFor(() => expect(localStorage.getItem(storageKey('native-transfer'))).toContain(SEND_HASH))
     expect(localStorage.getItem(storageKey('erc20-transfer'))).toBeNull()
+    expect(screen.getByRole('link', { name: `查看 ETH 交易 ${SEND_HASH}` })).toHaveAttribute(
+      'href',
+      `${EXPLORER_URL}/${SEND_HASH}`,
+    )
     expect(mocks.sendTransaction).toHaveBeenCalledWith({
       to: '0x8F7b86Fe8f1a5CaB00Aa66cBb3E3BBF6a79535EE',
       value: BigInt('100000000000000'),
@@ -284,6 +293,10 @@ describe('TokenTransferPanel pending transactions', () => {
     render(<TokenTransferPanel />)
 
     expect(await screen.findByText('转账成功!')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: `查看已确认 ERC-20 交易 ${TRANSFER_HASH}` })).toHaveAttribute(
+      'href',
+      `${EXPLORER_URL}/${TRANSFER_HASH}`,
+    )
     await waitFor(() => expect(localStorage.getItem(storageKey('erc20-transfer'))).toBeNull())
     expect(mocks.refetchTokenBalance).toHaveBeenCalled()
     expect(mocks.refetchNativeBalance).toHaveBeenCalled()
@@ -311,6 +324,10 @@ describe('TokenTransferPanel pending transactions', () => {
 
     expect(screen.queryByText('转账成功!')).not.toBeInTheDocument()
     expect(screen.getByText(/取消原交易/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: `查看 ERC-20 替换交易 ${REPLACEMENT_HASH}` })).toHaveAttribute(
+      'href',
+      `${EXPLORER_URL}/${REPLACEMENT_HASH}`,
+    )
     expect(localStorage.getItem(storageKey('erc20-transfer'))).toBeNull()
   })
 
@@ -325,6 +342,10 @@ describe('TokenTransferPanel pending transactions', () => {
     })
 
     expect(screen.getByText(/加速了交易/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: `查看 ERC-20 替换交易 ${REPLACEMENT_HASH}` })).toHaveAttribute(
+      'href',
+      `${EXPLORER_URL}/${REPLACEMENT_HASH}`,
+    )
     expect(localStorage.getItem(storageKey('erc20-transfer'))).toContain(REPLACEMENT_HASH)
   })
 })

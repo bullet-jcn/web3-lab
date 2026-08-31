@@ -1,4 +1,5 @@
 import { base, baseSepolia, mainnet, sepolia } from 'viem/chains'
+import type { Hash } from 'viem'
 import { baseClient, baseSepoliaClient, mainnetClient, sepoliaClient } from './viemClient'
 
 export const WALLET_CHAINS = [sepolia, mainnet] as const
@@ -22,6 +23,14 @@ type ChainBalanceConfig = (typeof CHAIN_CONFIGS)[keyof typeof CHAIN_CONFIGS][num
 
 export function isWriteChain(chainId: number | undefined): boolean {
   return chainId === WRITE_CHAIN.id
+}
+
+export function getTransactionExplorerUrl(chainId: number | undefined, hash: Hash): string | undefined {
+  if (chainId === undefined) return undefined
+  const chainConfig = ACTIVE_CHAINS.find((config) => config.chainId === chainId)
+  const explorerUrl = chainConfig?.chain.blockExplorers?.default.url
+  if (!explorerUrl) return undefined
+  return `${explorerUrl.replace(/\/$/, '')}/tx/${hash}`
 }
 
 export { ACTIVE_CHAINS }
