@@ -27,6 +27,9 @@ const mocks = vi.hoisted(() => ({
   writeError: null as Error | null,
   sendError: null as Error | null,
   readClipboard: vi.fn(),
+  ensResults: new Map<string, string | null>(),
+  ensErrors: new Map<string, Error>(),
+  ensQueries: [] as Array<{ chainId?: number; name?: string; enabled?: boolean }>,
   refetchTokenBalance: vi.fn(),
   refetchNativeBalance: vi.fn(),
   nativeBalance: BigInt('1000000000000000000'),
@@ -35,6 +38,20 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('wagmi', () => ({
   useConnection: () => ({ address: ACCOUNT }),
+  useEnsAddress: (options: { chainId?: number; name?: string; query?: { enabled?: boolean } }) => {
+    if (options.name) mocks.ensQueries.push({
+      chainId: options.chainId,
+      name: options.name,
+      enabled: options.query?.enabled,
+    })
+    const error = options.name ? mocks.ensErrors.get(options.name) ?? null : null
+    const hasResult = !!options.name && mocks.ensResults.has(options.name)
+    return {
+      data: hasResult && options.name ? mocks.ensResults.get(options.name) : undefined,
+      error,
+      isLoading: !!options.name && !hasResult && !error,
+    }
+  },
   useBalance: () => ({
     data: { value: mocks.nativeBalance, decimals: 18, symbol: 'ETH' },
     error: null,
@@ -119,6 +136,9 @@ describe('TokenTransferPanel pending transactions', () => {
     mocks.writeError = null
     mocks.sendError = null
     mocks.readClipboard.mockReset()
+    mocks.ensResults.clear()
+    mocks.ensErrors.clear()
+    mocks.ensQueries.length = 0
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
       value: { readText: mocks.readClipboard },
@@ -221,6 +241,67 @@ describe('TokenTransferPanel pending transactions', () => {
       resolveClipboard('0x8f7b86fe8f1a5cab00aa66cbb3e3bbf6a79535ee')
       await Promise.resolve()
     })
+
+    expect(screen.getByLabelText('ERC-20 收款地址')).toHaveValue(
+      '0xcB29F8F0Aefc72E7Cf447328e0c4B7eDd94a2739',
+    )
+  })
+
+  it('resolves a normalized ENS name on the write chain before filling the ERC-20 recipient', async () => {
+    mocks.ensResults.set('alice.eth', '0x8f7b86fe8f1a5cab00aa66cbb3e3bbf6a79535ee')
+    render(<TokenTransferPanel />)
+
+    fireEvent.change(screen.getByLabelText('ERC-20 收款地址'), { target: { value: ' Alice.ETH ' } })
+    expect(screen.getByText('请先在 Ethereum Sepolia 解析 ENS，解析后才会得到可预览的地址。')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '解析 ERC-20 ENS 名称' }))
+
+    await waitFor(() => expect(screen.getByLabelText('ERC-20 收款地址')).toHaveValue(
+      '0x8F7b86Fe8f1a5CaB00Aa66cBb3E3BBF6a79535EE',
+    ))
+    expect(mocks.ensQueries).toContainEqual({ chainId: CHAIN_ID, name: 'alice.eth', enabled: true })
+    expect(screen.queryByText('转账前确认')).not.toBeInTheDocument()
+    expect(mocks.writeContract).not.toHaveBeenCalled()
+  })
+
+  it('fails closed when an ENS name has no recipient on the write chain', async () => {
+    mocks.ensResults.set('missing.eth', null)
+    render(<TokenTransferPanel />)
+
+    fireEvent.change(screen.getByLabelText('ETH 收款地址'), { target: { value: 'missing.eth' } })
+    fireEvent.click(screen.getByRole('button', { name: '解析 ETH ENS 名称' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      '该 ENS 名称在 Ethereum Sepolia 没有有效的收款地址',
+    )
+    expect(screen.getByLabelText('ETH 收款地址')).toHaveValue('missing.eth')
+    expect(mocks.sendTransaction).not.toHaveBeenCalled()
+  })
+
+  it('shows a fixed error when the ENS RPC query fails', async () => {
+    mocks.ensErrors.set('alice.eth', new Error('private upstream details'))
+    render(<TokenTransferPanel />)
+
+    fireEvent.change(screen.getByLabelText('ETH 收款地址'), { target: { value: 'alice.eth' } })
+    fireEvent.click(screen.getByRole('button', { name: '解析 ETH ENS 名称' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      '暂时无法在 Ethereum Sepolia 查询 ENS，请重试',
+    )
+    expect(screen.queryByText(/private upstream details/)).not.toBeInTheDocument()
+  })
+
+  it('does not let a late ENS response overwrite newer manual input', async () => {
+    render(<TokenTransferPanel />)
+
+    fireEvent.change(screen.getByLabelText('ERC-20 收款地址'), { target: { value: 'alice.eth' } })
+    fireEvent.click(screen.getByRole('button', { name: '解析 ERC-20 ENS 名称' }))
+    expect(screen.getByRole('button', { name: '解析 ERC-20 ENS 名称' })).toHaveTextContent('解析中…')
+
+    fireEvent.change(screen.getByLabelText('ERC-20 收款地址'), {
+      target: { value: '0xcB29F8F0Aefc72E7Cf447328e0c4B7eDd94a2739' },
+    })
+    mocks.ensResults.set('alice.eth', '0x8f7b86fe8f1a5cab00aa66cbb3e3bbf6a79535ee')
+    fireEvent.change(screen.getByLabelText('USDC 数量'), { target: { value: '1' } })
 
     expect(screen.getByLabelText('ERC-20 收款地址')).toHaveValue(
       '0xcB29F8F0Aefc72E7Cf447328e0c4B7eDd94a2739',

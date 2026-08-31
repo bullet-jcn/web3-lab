@@ -3,7 +3,7 @@
 import { getErrorMessage } from "@/lib/errors";
 import { encodeFunctionData, erc20Abi, formatEther, formatUnits, type Hash, type ReplacementReason } from "viem";
 import { useEffect, useRef, useState } from "react";
-import { useBalance, useConnection, useEstimateFeesPerGas, useEstimateGas, useReadContract, useSendTransaction, useSimulateContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
+import { useBalance, useConnection, useEnsAddress, useEstimateFeesPerGas, useEstimateGas, useReadContract, useSendTransaction, useSimulateContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
 import { Button } from "@/components/ui/button";
 import { useWriteChainGuard } from "@/lib/hooks/useWriteChainGuard";
 import { getReplacementMessage, resolveTransactionState } from "@/lib/transactionState";
@@ -19,6 +19,7 @@ import { parseTransferRecipient } from "@/lib/transferRecipient";
 import { TransactionExplorerLink } from "@/components/token/TransactionExplorerLink";
 import { readTransferRecipientFromClipboard } from "@/lib/transferClipboard";
 import { TransferAddressBook } from "@/components/token/TransferAddressBook";
+import { parseTransferEnsName } from "@/lib/transferEns";
 
 interface ReplacementInfo {
     contextKey: string
@@ -29,6 +30,13 @@ interface ReplacementInfo {
 interface TrackedTransaction {
     contextKey: string
     hash: Hash
+}
+
+interface EnsResolutionRequest {
+    id: number
+    source: string
+    name: string
+    chainId: number
 }
 
 function transactionContextKey(address: `0x${string}` | undefined, chainId: number | undefined, kind: PendingTransactionKind) {
@@ -47,6 +55,19 @@ export function TokenTransferPanel() {
     const nativeClipboardRequestId = useRef(0)
     const [isReadingNativeClipboard, setIsReadingNativeClipboard] = useState(false)
     const [nativeClipboardError, setNativeClipboardError] = useState<string | null>(null)
+    const nativeEnsRequestId = useRef(0)
+    const [nativeEnsRequest, setNativeEnsRequest] = useState<EnsResolutionRequest | null>(null)
+    const [nativeEnsError, setNativeEnsError] = useState<string | null>(null)
+    const nativeEnsInput = parseTransferEnsName(nativeRecipient)
+    const {
+        data: resolvedNativeEnsAddress,
+        error: nativeEnsQueryError,
+        isLoading: isResolvingNativeEns,
+    } = useEnsAddress({
+        chainId: writeChain.id,
+        name: nativeEnsRequest?.name,
+        query: { enabled: !!nativeEnsRequest, retry: false },
+    })
     const nativeRecipientInput = parseTransferRecipient(nativeRecipient)
     const nativeTransferInput = parseNativeTransferInput(nativeRecipient, nativeAmount)
     const isNativeGasProbeReady = !!address && isCorrectChain && nativeRecipientInput.ok
@@ -74,6 +95,19 @@ export function TokenTransferPanel() {
     const erc20ClipboardRequestId = useRef(0)
     const [isReadingErc20Clipboard, setIsReadingErc20Clipboard] = useState(false)
     const [erc20ClipboardError, setErc20ClipboardError] = useState<string | null>(null)
+    const erc20EnsRequestId = useRef(0)
+    const [erc20EnsRequest, setErc20EnsRequest] = useState<EnsResolutionRequest | null>(null)
+    const [erc20EnsError, setErc20EnsError] = useState<string | null>(null)
+    const erc20EnsInput = parseTransferEnsName(erc20Recipient)
+    const {
+        data: resolvedErc20EnsAddress,
+        error: erc20EnsQueryError,
+        isLoading: isResolvingErc20Ens,
+    } = useEnsAddress({
+        chainId: writeChain.id,
+        name: erc20EnsRequest?.name,
+        query: { enabled: !!erc20EnsRequest, retry: false },
+    })
     const supportedErc20Assets = listSupportedErc20Assets(writeChain.id)
     const [selectedErc20AssetId, setSelectedErc20AssetId] = useState(supportedErc20Assets[0]?.id ?? '')
     const selectedErc20Asset = getSupportedErc20Asset(writeChain.id, selectedErc20AssetId)
@@ -225,9 +259,61 @@ export function TokenTransferPanel() {
         return () => { cancelled = true }
     }, [reviewContextKey])
 
+    useEffect(() => {
+        if (!erc20EnsRequest || isResolvingErc20Ens) return
+        const resolvedRecipient = resolvedErc20EnsAddress
+            ? parseTransferRecipient(resolvedErc20EnsAddress)
+            : null
+        let cancelled = false
+        queueMicrotask(() => {
+            if (cancelled
+                || erc20EnsRequest.id !== erc20EnsRequestId.current
+                || erc20EnsRequest.chainId !== writeChain.id
+                || erc20Recipient !== erc20EnsRequest.source) return
+            if (erc20EnsQueryError) {
+                setErc20EnsError(`暂时无法在 ${writeChain.name} 查询 ENS，请重试`)
+            } else if (!resolvedRecipient?.ok) {
+                setErc20EnsError(`该 ENS 名称在 ${writeChain.name} 没有有效的收款地址`)
+            } else {
+                setErc20Recipient(resolvedRecipient.recipient)
+                setErc20EnsError(null)
+                setReview(null)
+            }
+            setErc20EnsRequest(null)
+        })
+        return () => { cancelled = true }
+    }, [erc20EnsQueryError, erc20EnsRequest, erc20Recipient, isResolvingErc20Ens, resolvedErc20EnsAddress, writeChain.id, writeChain.name])
+
+    useEffect(() => {
+        if (!nativeEnsRequest || isResolvingNativeEns) return
+        const resolvedRecipient = resolvedNativeEnsAddress
+            ? parseTransferRecipient(resolvedNativeEnsAddress)
+            : null
+        let cancelled = false
+        queueMicrotask(() => {
+            if (cancelled
+                || nativeEnsRequest.id !== nativeEnsRequestId.current
+                || nativeEnsRequest.chainId !== writeChain.id
+                || nativeRecipient !== nativeEnsRequest.source) return
+            if (nativeEnsQueryError) {
+                setNativeEnsError(`暂时无法在 ${writeChain.name} 查询 ENS，请重试`)
+            } else if (!resolvedRecipient?.ok) {
+                setNativeEnsError(`该 ENS 名称在 ${writeChain.name} 没有有效的收款地址`)
+            } else {
+                setNativeRecipient(resolvedRecipient.recipient)
+                setNativeEnsError(null)
+                setReview(null)
+            }
+            setNativeEnsRequest(null)
+        })
+        return () => { cancelled = true }
+    }, [isResolvingNativeEns, nativeEnsQueryError, nativeEnsRequest, nativeRecipient, resolvedNativeEnsAddress, writeChain.id, writeChain.name])
+
     useEffect(() => () => {
         erc20ClipboardRequestId.current += 1
         nativeClipboardRequestId.current += 1
+        erc20EnsRequestId.current += 1
+        nativeEnsRequestId.current += 1
     }, [])
 
     useEffect(() => {
@@ -296,6 +382,9 @@ export function TokenTransferPanel() {
 
     async function pasteErc20Recipient() {
         const requestId = ++erc20ClipboardRequestId.current
+        erc20EnsRequestId.current += 1
+        setErc20EnsRequest(null)
+        setErc20EnsError(null)
         setIsReadingErc20Clipboard(true)
         setErc20ClipboardError(null)
         setReview(null)
@@ -309,6 +398,24 @@ export function TokenTransferPanel() {
             return
         }
         setErc20Recipient(result.recipient)
+    }
+
+    function resolveErc20EnsRecipient() {
+        if (isTransferLocked || !erc20EnsInput.ok) {
+            if (!erc20EnsInput.ok) setErc20EnsError(erc20EnsInput.error)
+            return
+        }
+        erc20ClipboardRequestId.current += 1
+        setIsReadingErc20Clipboard(false)
+        setErc20ClipboardError(null)
+        setErc20EnsError(null)
+        setReview(null)
+        setErc20EnsRequest({
+            id: ++erc20EnsRequestId.current,
+            source: erc20Recipient,
+            name: erc20EnsInput.name,
+            chainId: writeChain.id,
+        })
     }
 
     function fillErc20MaxAmount() {
@@ -353,6 +460,9 @@ export function TokenTransferPanel() {
 
     async function pasteNativeRecipient() {
         const requestId = ++nativeClipboardRequestId.current
+        nativeEnsRequestId.current += 1
+        setNativeEnsRequest(null)
+        setNativeEnsError(null)
         setIsReadingNativeClipboard(true)
         setNativeClipboardError(null)
         setReview(null)
@@ -368,6 +478,24 @@ export function TokenTransferPanel() {
         setNativeRecipient(result.recipient)
     }
 
+    function resolveNativeEnsRecipient() {
+        if (isSendLocked || !nativeEnsInput.ok) {
+            if (!nativeEnsInput.ok) setNativeEnsError(nativeEnsInput.error)
+            return
+        }
+        nativeClipboardRequestId.current += 1
+        setIsReadingNativeClipboard(false)
+        setNativeClipboardError(null)
+        setNativeEnsError(null)
+        setReview(null)
+        setNativeEnsRequest({
+            id: ++nativeEnsRequestId.current,
+            source: nativeRecipient,
+            name: nativeEnsInput.name,
+            chainId: writeChain.id,
+        })
+    }
+
     function fillNativeMaxAmount() {
         if (nativeMaxTransfer.state !== 'available' || isSendBusy) return
         setNativeAmount(formatEther(nativeMaxTransfer.value))
@@ -376,16 +504,22 @@ export function TokenTransferPanel() {
 
     function selectErc20RecipientFromAddressBook(recipient: `0x${string}`) {
         erc20ClipboardRequestId.current += 1
+        erc20EnsRequestId.current += 1
         setIsReadingErc20Clipboard(false)
         setErc20ClipboardError(null)
+        setErc20EnsRequest(null)
+        setErc20EnsError(null)
         setErc20Recipient(recipient)
         setReview(null)
     }
 
     function selectNativeRecipientFromAddressBook(recipient: `0x${string}`) {
         nativeClipboardRequestId.current += 1
+        nativeEnsRequestId.current += 1
         setIsReadingNativeClipboard(false)
         setNativeClipboardError(null)
+        setNativeEnsRequest(null)
+        setNativeEnsError(null)
         setNativeRecipient(recipient)
         setReview(null)
     }
@@ -495,33 +629,50 @@ export function TokenTransferPanel() {
                 <div className="space-y-1">
                     <div className="flex items-center justify-between gap-2">
                         <label className="text-sm font-medium" htmlFor="erc20-recipient">ERC-20 收款地址</label>
-                        <Button
-                            type="button"
-                            variant="ghost"
-                            size="xs"
-                            aria-label="粘贴 ERC-20 收款地址"
-                            onClick={() => { void pasteErc20Recipient() }}
-                            disabled={isReadingErc20Clipboard || isTransferLocked}
-                        >{isReadingErc20Clipboard ? '读取中…' : '粘贴'}</Button>
+                        <div className="flex gap-1">
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="xs"
+                                aria-label="解析 ERC-20 ENS 名称"
+                                onClick={resolveErc20EnsRecipient}
+                                disabled={!erc20EnsInput.ok || isResolvingErc20Ens || isTransferLocked}
+                            >{isResolvingErc20Ens ? '解析中…' : '解析 ENS'}</Button>
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="xs"
+                                aria-label="粘贴 ERC-20 收款地址"
+                                onClick={() => { void pasteErc20Recipient() }}
+                                disabled={isReadingErc20Clipboard || isTransferLocked}
+                            >{isReadingErc20Clipboard ? '读取中…' : '粘贴'}</Button>
+                        </div>
                     </div>
                     <Input
                         id="erc20-recipient"
                         value={erc20Recipient}
                         onChange={(event) => {
                             erc20ClipboardRequestId.current += 1
+                            erc20EnsRequestId.current += 1
                             setIsReadingErc20Clipboard(false)
                             setErc20ClipboardError(null)
+                            setErc20EnsRequest(null)
+                            setErc20EnsError(null)
                             setErc20Recipient(event.target.value)
                             setReview(null)
                         }}
-                        placeholder="0x…"
+                        placeholder="0x… 或 name.eth"
                         autoComplete="off"
                         spellCheck={false}
-                        aria-invalid={!!erc20Recipient && !erc20TransferInput.ok && !!erc20TransferInput.recipientError}
+                        aria-invalid={!!erc20Recipient && !erc20TransferInput.ok && !erc20EnsInput.ok && !!erc20TransferInput.recipientError}
                     />
-                    {!!erc20Recipient && !erc20TransferInput.ok && erc20TransferInput.recipientError && (
+                    {!!erc20Recipient && !erc20TransferInput.ok && erc20EnsInput.ok && !erc20EnsError && (
+                        <p className="text-sm text-muted-foreground">请先在 {writeChain.name} 解析 ENS，解析后才会得到可预览的地址。</p>
+                    )}
+                    {!!erc20Recipient && !erc20TransferInput.ok && !erc20EnsInput.ok && erc20TransferInput.recipientError && (
                         <p className="text-sm text-destructive">{erc20TransferInput.recipientError}</p>
                     )}
+                    {erc20EnsError && <p className="text-sm text-destructive" role="alert">{erc20EnsError}</p>}
                     {erc20ClipboardError && <p className="text-sm text-destructive">{erc20ClipboardError}</p>}
                 </div>
                 <div className="space-y-1">
@@ -607,33 +758,50 @@ export function TokenTransferPanel() {
                 <div className="space-y-1">
                     <div className="flex items-center justify-between gap-2">
                         <label className="text-sm font-medium" htmlFor="native-recipient">ETH 收款地址</label>
-                        <Button
-                            type="button"
-                            variant="ghost"
-                            size="xs"
-                            aria-label="粘贴 ETH 收款地址"
-                            onClick={() => { void pasteNativeRecipient() }}
-                            disabled={isReadingNativeClipboard || isSendLocked}
-                        >{isReadingNativeClipboard ? '读取中…' : '粘贴'}</Button>
+                        <div className="flex gap-1">
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="xs"
+                                aria-label="解析 ETH ENS 名称"
+                                onClick={resolveNativeEnsRecipient}
+                                disabled={!nativeEnsInput.ok || isResolvingNativeEns || isSendLocked}
+                            >{isResolvingNativeEns ? '解析中…' : '解析 ENS'}</Button>
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="xs"
+                                aria-label="粘贴 ETH 收款地址"
+                                onClick={() => { void pasteNativeRecipient() }}
+                                disabled={isReadingNativeClipboard || isSendLocked}
+                            >{isReadingNativeClipboard ? '读取中…' : '粘贴'}</Button>
+                        </div>
                     </div>
                     <Input
                         id="native-recipient"
                         value={nativeRecipient}
                         onChange={(event) => {
                             nativeClipboardRequestId.current += 1
+                            nativeEnsRequestId.current += 1
                             setIsReadingNativeClipboard(false)
                             setNativeClipboardError(null)
+                            setNativeEnsRequest(null)
+                            setNativeEnsError(null)
                             setNativeRecipient(event.target.value)
                             setReview(null)
                         }}
-                        placeholder="0x…"
+                        placeholder="0x… 或 name.eth"
                         autoComplete="off"
                         spellCheck={false}
-                        aria-invalid={!!nativeRecipient && !nativeTransferInput.ok && !!nativeTransferInput.recipientError}
+                        aria-invalid={!!nativeRecipient && !nativeTransferInput.ok && !nativeEnsInput.ok && !!nativeTransferInput.recipientError}
                     />
-                    {!!nativeRecipient && !nativeTransferInput.ok && nativeTransferInput.recipientError && (
+                    {!!nativeRecipient && !nativeTransferInput.ok && nativeEnsInput.ok && !nativeEnsError && (
+                        <p className="text-sm text-muted-foreground">请先在 {writeChain.name} 解析 ENS，解析后才会得到可预览的地址。</p>
+                    )}
+                    {!!nativeRecipient && !nativeTransferInput.ok && !nativeEnsInput.ok && nativeTransferInput.recipientError && (
                         <p className="text-sm text-destructive">{nativeTransferInput.recipientError}</p>
                     )}
+                    {nativeEnsError && <p className="text-sm text-destructive" role="alert">{nativeEnsError}</p>}
                     {nativeClipboardError && <p className="text-sm text-destructive">{nativeClipboardError}</p>}
                 </div>
                 <div className="space-y-1">
