@@ -12,9 +12,10 @@ import { parseNativeTransferInput } from "@/lib/nativeTransferInput";
 import { Input } from "@/components/ui/input";
 import { parseErc20TransferInput } from "@/lib/erc20TransferInput";
 import { resolveTokenBalanceState } from "@/lib/tokenBalance";
-import { resolveNativeTransferBudget } from "@/lib/nativeTransferBudget";
+import { resolveNativeMaxTransfer, resolveNativeTransferBudget } from "@/lib/nativeTransferBudget";
 import { createTransferReview, type TransferReview } from "@/lib/transferReview";
 import { getSupportedErc20Asset, listSupportedErc20Assets } from "@/lib/assetRegistry";
+import { parseTransferRecipient } from "@/lib/transferRecipient";
 
 interface ReplacementInfo {
     reason: ReplacementReason
@@ -39,8 +40,9 @@ export function TokenTransferPanel() {
     const [review, setReview] = useState<TransferReview | null>(null)
     const [nativeRecipient, setNativeRecipient] = useState('')
     const [nativeAmount, setNativeAmount] = useState('')
+    const nativeRecipientInput = parseTransferRecipient(nativeRecipient)
     const nativeTransferInput = parseNativeTransferInput(nativeRecipient, nativeAmount)
-    const isNativeRequestReady = !!address && isCorrectChain && nativeTransferInput.ok
+    const isNativeGasProbeReady = !!address && isCorrectChain && nativeRecipientInput.ok
     const { data: nativeBalance, error: nativeBalanceError, refetch: refetchNativeBalance } = useBalance({
         address,
         chainId: writeChain.id,
@@ -51,7 +53,14 @@ export function TokenTransferPanel() {
         chainId: writeChain.id,
         to: nativeTransferInput.ok ? nativeTransferInput.recipient : undefined,
         value: nativeTransferInput.ok ? nativeTransferInput.value : undefined,
-        query: { enabled: isNativeRequestReady },
+        query: { enabled: !!address && isCorrectChain && nativeTransferInput.ok },
+    })
+    const { data: estimatedNativeMaxGas, error: nativeMaxGasError } = useEstimateGas({
+        account: address,
+        chainId: writeChain.id,
+        to: nativeRecipientInput.ok ? nativeRecipientInput.recipient : undefined,
+        value: BigInt(1),
+        query: { enabled: isNativeGasProbeReady },
     })
     const [erc20Recipient, setErc20Recipient] = useState('')
     const [erc20Amount, setErc20Amount] = useState('')
@@ -87,12 +96,17 @@ export function TokenTransferPanel() {
     const { data: feeEstimate, error: feesError } = useEstimateFeesPerGas({
         chainId: writeChain.id,
         type: 'eip1559',
-        query: { enabled: isNativeRequestReady || isErc20RequestReady },
+        query: { enabled: isNativeGasProbeReady || isErc20RequestReady },
     })
     const nativeTransferBudget = resolveNativeTransferBudget({
         value: nativeTransferInput.ok ? nativeTransferInput.value : undefined,
         balance: nativeBalance?.value,
         gas: estimatedNativeGas,
+        maxFeePerGas: feeEstimate?.maxFeePerGas,
+    })
+    const nativeMaxTransfer = resolveNativeMaxTransfer({
+        balance: isNativeGasProbeReady ? nativeBalance?.value : undefined,
+        gas: estimatedNativeMaxGas,
         maxFeePerGas: feeEstimate?.maxFeePerGas,
     })
     const erc20GasBudget = resolveNativeTransferBudget({
@@ -261,6 +275,12 @@ export function TokenTransferPanel() {
         }))
     }
 
+    function fillErc20MaxAmount() {
+        if (!selectedErc20Asset || !isTokenMetadataVerified || tokenBalance === undefined || tokenBalance <= BigInt(0) || isTransferBusy) return
+        setErc20Amount(formatUnits(tokenBalance, selectedErc20Asset.decimals))
+        setReview(null)
+    }
+
     function confirmErc20Transfer() {
         if (!address || !isCorrectChain || activeReview?.kind !== 'erc20' || tokenBalance === undefined || nativeBalance === undefined || activeReview.amount > tokenBalance || activeReview.gasCostLimit > nativeBalance.value) return
         const registeredAsset = getSupportedErc20Asset(activeReview.chainId, activeReview.assetId)
@@ -293,6 +313,12 @@ export function TokenTransferPanel() {
             gasCostLimit: nativeTransferBudget.gasCostLimit,
             balance: nativeBalance.value,
         }))
+    }
+
+    function fillNativeMaxAmount() {
+        if (nativeMaxTransfer.state !== 'available' || isSendBusy) return
+        setNativeAmount(formatEther(nativeMaxTransfer.value))
+        setReview(null)
     }
 
     function confirmNativeTransfer() {
@@ -395,7 +421,17 @@ export function TokenTransferPanel() {
                     )}
                 </div>
                 <div className="space-y-1">
-                    <label className="text-sm font-medium" htmlFor="erc20-amount">{tokenSymbol} 数量</label>
+                    <div className="flex items-center justify-between gap-2">
+                        <label className="text-sm font-medium" htmlFor="erc20-amount">{tokenSymbol} 数量</label>
+                        <Button
+                            type="button"
+                            variant="ghost"
+                            size="xs"
+                            aria-label={`填写最大 ${tokenSymbol} 数量`}
+                            onClick={fillErc20MaxAmount}
+                            disabled={!selectedErc20Asset || !isTokenMetadataVerified || tokenBalance === undefined || tokenBalance <= BigInt(0) || isTransferBusy}
+                        >最大</Button>
+                    </div>
                     <Input
                         id="erc20-amount"
                         value={erc20Amount}
@@ -465,7 +501,17 @@ export function TokenTransferPanel() {
                     )}
                 </div>
                 <div className="space-y-1">
-                    <label className="text-sm font-medium" htmlFor="native-amount">ETH 数量</label>
+                    <div className="flex items-center justify-between gap-2">
+                        <label className="text-sm font-medium" htmlFor="native-amount">ETH 数量</label>
+                        <Button
+                            type="button"
+                            variant="ghost"
+                            size="xs"
+                            aria-label="填写最大 ETH 数量"
+                            onClick={fillNativeMaxAmount}
+                            disabled={nativeMaxTransfer.state !== 'available' || isSendBusy}
+                        >最大</Button>
+                    </div>
                     <Input
                         id="native-amount"
                         value={nativeAmount}
@@ -480,6 +526,8 @@ export function TokenTransferPanel() {
                     )}
                     {nativeBalanceError && <p className="text-sm text-destructive">无法读取 ETH 余额，已阻止转账</p>}
                     {(nativeGasError || feesError) && <p className="text-sm text-destructive">无法估算 Gas 成本，已阻止转账</p>}
+                    {nativeMaxGasError && <p className="text-sm text-muted-foreground">无法计算最大 ETH 数量，可以继续手动输入</p>}
+                    {nativeMaxTransfer.state === 'no-transferable-balance' && <p className="text-sm text-destructive">ETH 余额不足以在预留 Gas 后继续转账</p>}
                     {nativeTransferBudget.state !== 'unavailable' && (
                         <p className="text-sm text-muted-foreground">
                             预留最高 Gas 成本: {formatEther(nativeTransferBudget.gasCostLimit)} ETH

@@ -33,7 +33,9 @@ vi.mock('wagmi', () => ({
     error: null,
     refetch: mocks.refetchNativeBalance,
   }),
-  useEstimateGas: (options: { data?: string }) => ({ data: options.data ? BigInt(50_000) : BigInt(21_000), error: null }),
+  useEstimateGas: (options: { data?: string; value?: bigint }) => options.value !== undefined && options.value > mocks.nativeBalance
+    ? { data: undefined, error: new Error('insufficient funds for gas estimate') }
+    : { data: options.data ? BigInt(50_000) : BigInt(21_000), error: null },
   useEstimateFeesPerGas: () => ({
     data: { maxFeePerGas: BigInt(2_000_000_000), maxPriorityFeePerGas: BigInt(1_000_000_000) },
     error: null,
@@ -168,6 +170,15 @@ describe('TokenTransferPanel pending transactions', () => {
     expect(mocks.writeContract).not.toHaveBeenCalled()
   })
 
+  it('fills the exact ERC-20 balance without using floating point math', () => {
+    render(<TokenTransferPanel />)
+
+    fireEvent.click(screen.getByRole('button', { name: '填写最大 USDC 数量' }))
+
+    expect(screen.getByLabelText('USDC 数量')).toHaveValue('1.5')
+    expect(mocks.writeContract).not.toHaveBeenCalled()
+  })
+
   it('blocks an ERC-20 amount above the current account balance', () => {
     render(<TokenTransferPanel />)
 
@@ -234,6 +245,22 @@ describe('TokenTransferPanel pending transactions', () => {
     expect(screen.getByText('预留最高 Gas 成本: 0.000042 ETH')).toBeInTheDocument()
     expect(screen.getByText('ETH 余额不足，转账金额加 Gas 预算还差 0.000032 ETH')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '预览 ETH 转账' })).toBeDisabled()
+    expect(mocks.sendTransaction).not.toHaveBeenCalled()
+  })
+
+  it('subtracts the gas limit before filling the maximum native amount', () => {
+    render(<TokenTransferPanel />)
+
+    const maxButton = screen.getByRole('button', { name: '填写最大 ETH 数量' })
+    expect(maxButton).toBeDisabled()
+
+    fireEvent.change(screen.getByLabelText('ETH 收款地址'), { target: { value: '0x8F7b86Fe8f1a5CaB00Aa66cBb3E3BBF6a79535EE' } })
+    fireEvent.change(screen.getByLabelText('ETH 数量'), { target: { value: '2' } })
+    expect(maxButton).toBeEnabled()
+    fireEvent.click(maxButton)
+
+    expect(screen.getByLabelText('ETH 数量')).toHaveValue('0.999958')
+    expect(screen.getByText('预留最高 Gas 成本: 0.000042 ETH')).toBeInTheDocument()
     expect(mocks.sendTransaction).not.toHaveBeenCalled()
   })
 

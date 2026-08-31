@@ -1,4 +1,5 @@
-import { getAddress, isAddress, maxUint256, parseUnits, zeroAddress, type Address } from 'viem'
+import { maxUint256, parseUnits, type Address } from 'viem'
+import { parseTransferRecipient } from './transferRecipient'
 
 export type Erc20TransferInputResult =
   | { ok: true; recipient: Address; amount: bigint }
@@ -9,18 +10,10 @@ export function parseErc20TransferInput(
   amountInput: string,
   decimals: number | undefined,
 ): Erc20TransferInputResult {
-  const recipient = recipientInput.trim()
+  const recipientResult = parseTransferRecipient(recipientInput)
   const amount = amountInput.trim()
-  let recipientError: string | undefined
+  const recipientError = recipientResult.ok ? undefined : recipientResult.recipientError
   let amountError: string | undefined
-
-  if (!recipient) {
-    recipientError = '请输入收款地址'
-  } else if (!isAddress(recipient)) {
-    recipientError = '请输入有效的 EVM 地址'
-  } else if (recipient.toLowerCase() === zeroAddress) {
-    recipientError = '不能向零地址转账'
-  }
 
   if (decimals === undefined) {
     amountError = '正在读取代币精度'
@@ -48,9 +41,9 @@ export function parseErc20TransferInput(
     }
   }
 
-  if (recipientError || amountError || parsedAmount === undefined) {
+  if (!recipientResult.ok || amountError || parsedAmount === undefined) {
     return { ok: false, recipientError, amountError }
   }
 
-  return { ok: true, recipient: getAddress(recipient), amount: parsedAmount }
+  return { ok: true, recipient: recipientResult.recipient, amount: parsedAmount }
 }

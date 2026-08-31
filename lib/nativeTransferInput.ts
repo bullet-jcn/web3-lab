@@ -1,4 +1,5 @@
-import { getAddress, isAddress, parseEther, zeroAddress, type Address } from 'viem'
+import { parseEther, type Address } from 'viem'
+import { parseTransferRecipient } from './transferRecipient'
 
 export type NativeTransferInputResult =
   | { ok: true; recipient: Address; value: bigint }
@@ -8,18 +9,10 @@ export function parseNativeTransferInput(
   recipientInput: string,
   amountInput: string,
 ): NativeTransferInputResult {
-  const recipient = recipientInput.trim()
+  const recipientResult = parseTransferRecipient(recipientInput)
   const amount = amountInput.trim()
-  let recipientError: string | undefined
+  const recipientError = recipientResult.ok ? undefined : recipientResult.recipientError
   let amountError: string | undefined
-
-  if (!recipient) {
-    recipientError = '请输入收款地址'
-  } else if (!isAddress(recipient)) {
-    recipientError = '请输入有效的 EVM 地址'
-  } else if (recipient.toLowerCase() === zeroAddress) {
-    recipientError = '不能向零地址转账'
-  }
 
   if (!amount) {
     amountError = '请输入 ETH 数量'
@@ -37,9 +30,9 @@ export function parseNativeTransferInput(
     }
   }
 
-  if (recipientError || amountError || value === undefined) {
+  if (!recipientResult.ok || amountError || value === undefined) {
     return { ok: false, recipientError, amountError }
   }
 
-  return { ok: true, recipient: getAddress(recipient), value }
+  return { ok: true, recipient: recipientResult.recipient, value }
 }
