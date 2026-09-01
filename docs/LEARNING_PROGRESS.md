@@ -4,7 +4,7 @@
 
 ## 当前目标
 
-Milestone 2 / Batch C 的代码实现与自动化退出审计已经完成。按用户决定，Milestone 2 整体学习暂缓但不删除，学习入口已记录在下方。Milestone 3 的 ERC-20 Registry 清单与单项 revoke 已提交；Permit2 双层授权清单已完成并停在 Review 边界。
+Milestone 2 / Batch C 的代码实现与自动化退出审计已经完成。按用户决定，Milestone 2 整体学习暂缓但不删除，学习入口已记录在下方。Milestone 3 的 ERC-20 Registry 清单、单项 revoke 与 Permit2 双层授权清单已提交；Permit2 单项 `lockdown` 已完成并停在 Review 边界。
 
 ## 已完成
 
@@ -52,25 +52,26 @@ Milestone 2 / Batch C 的代码实现与自动化退出审计已经完成。按�
 - Milestone 3 第一批已建立显式 Approval Registry 与 ERC-20 授权清单：读取当前连接账户在写链上的已登记 token/spender allowance，区分读取中、读取失败、零额度、有效额度和 uint256 最大值无限授权，并支持手动刷新。界面明确声明这是应用 Registry 的有限覆盖，不冒充完整钱包授权扫描。
 - Milestone 3 第二批已完成 ERC-20 单项 revoke：从当前 allowance 冻结账户、链、token、spender 和原额度 Review，以完全相同的 `approve(spender, 0)` 请求先模拟再提交；Hash 返回后才保存，刷新后恢复指定 Registry target 的 Receipt，支持观察重试、replacement、Explorer 证据和成功后的 allowance 复核。
 - Milestone 3 第三批已建立 Permit2 双层授权清单：同时读取 Token→Permit2 的 ERC-20 allowance 与 Permit2→Spender 的 amount/expiration/nonce，按目标链最新区块时间区分零额度、过期、底层额度为零但可能重新生效的 dormant、当前有效和读取失败，并验证 Sepolia canonical Permit2 runtime code hash。
+- Milestone 3 第四批已完成 Permit2 单项 `lockdown`：从当前双层快照冻结账户、链、Permit2、token、spender、两层额度、expiration、nonce 和状态 Review，以完全相同的单项 tuple 请求先模拟再提交；Hash 返回后才保存，刷新后恢复 Receipt，支持观察重试、replacement、Explorer 证据和成功后的 Permit2 双层重新读取。
 
 ## 当前未提交业务文件
 
-当前 Milestone 3 第三批待 Review 的业务文件：
+当前 Milestone 3 第四批待 Review 的业务文件：
 
-- `app/page.tsx`
 - `components/token/Permit2ApprovalInventory.tsx`
 - `components/token/Permit2ApprovalInventory.test.tsx`
-- `lib/permit2.ts`
-- `lib/permit2Registry.ts`
-- `lib/permit2Registry.test.ts`
-- `lib/permit2Inventory.ts`
-- `lib/permit2Inventory.test.ts`
+- `lib/permit2Lockdown.ts`
+- `lib/permit2Lockdown.test.ts`
+- `lib/pendingPermit2LockdownStorage.ts`
+- `lib/pendingPermit2LockdownStorage.test.ts`
 - `docs/LEARNING_PROGRESS.md`
 
 `docs/PRODUCT_SPEC.md` 与 `docs/PRODUCTION_ROADMAP.md` 是此前已有的未跟踪产品文档，不属于当前业务步骤，继续保持未提交。
 
 ## 最近完成的业务提交
 
+- `9f8f874 docs: checkpoint Permit2 approval inventory`
+- `34f4d65 feat: add Permit2 approval inventory`
 - `70fe847 docs: checkpoint approval revoke`
 - `f1f565d feat: revoke tracked ERC-20 approvals`
 - `70e5c03 docs: checkpoint approval inventory`
@@ -265,9 +266,21 @@ expiration 使用目标链最新区块 `timestamp` 判断，而不是浏览器�
 
 Milestone 3 第三批验证证据：新增 3 个测试文件、18 项测试；全仓 41 个测试文件、276 项测试通过，TypeScript、ESLint、Diff 检查和 Next.js 16.2.9 生产构建通过。构建使用项目既有 Google Geist 字体，因此在允许网络下载后完成。
 
+Permit2 `lockdown` 只操作 `AllowanceTransfer` 内部的 owner/token/spender 存储额度，不会撤销 Token→Permit2 的底层 ERC-20 allowance。因此 Review 和成功文案必须把两层效果分开，不能把内部 amount 归零表述成“Permit2 已获得的 Token 权限全部消失”。如果用户还要清除底层授权，那是另一笔对 Token 调用 `approve(Permit2, 0)` 的独立意图、模拟和交易。
+
+可撤销范围不只包含当前 active 权限：expired 项仍保留非零历史 amount，dormant 项在底层 allowance 恢复后可能重新可执行，两者都允许显式 `lockdown`。只有内部 amount 明确为 0 的 none 状态不创建 Review；loading、读取错误或 runtime code 身份不匹配继续 fail closed。
+
+Review 冻结当前账户、active chain、Registry target、Permit2 地址、token、spender、底层 ERC-20 allowance、Permit2 amount、expiration、nonce 和状态。任一证据变化都会使 Review 失效；模拟使用一个真实选中 target 组成长度为 1 的 `TokenSpenderPair[]`，最终提交直接使用模拟产生的 request。数组能力没有被伪装成尚不存在的多选产品。
+
+Permit2 lockdown 使用独立 `web3-lab:pending-permit2-lockdown:v1` 命名空间，只保存公开的账户、链、Registry target ID、交易 Hash 与创建时间。记录按账户/链隔离、24 小时过期并在恢复时重新验证 target 仍存在；刷新只恢复同一 Hash 的 Receipt 观察，绝不自动重发 lockdown。
+
+Receipt/RPC 错误继续保留 Hash 并锁住重复提交；加速更新 replacement Hash，取消或不同内容替换清除原操作。Receipt `success` 后同时重读合约 bytecode、区块时间和两层 allowance；只有 Permit2 内部 amount 明确为 0 才显示已归零，仍非零或读取失败都保持显式待核验。底层 Token→Permit2 allowance 无论是否仍非零，都不会被误报为本次 lockdown 的失败或成功目标。
+
+Milestone 3 第四批自动化证据：新增 2 个纯模块测试文件并扩展 Permit2 组件生命周期测试，共新增 21 项测试；全仓 43 个测试文件、297 项测试通过，TypeScript、ESLint、Diff 检查和 Next.js 16.2.9 生产构建通过。受限环境首次构建仍只因既有 Google Geist 字体无法联网下载而失败，允许网络后同一代码构建成功。
+
 ## 下一步
 
-Milestone 3 第三批 Permit2 双层清单已完成，停在 Review 边界，不自动提交。用户确认后分别提交业务代码与恢复文档。下一批基于已验证快照实现 Permit2 `lockdown([{ token, spender }])` 的冻结 Review、模拟、Receipt/恢复和双层重新读取；数组接口先支持真实选中的 target，不为展示批量功能复制假 target，存在多个真实 target 后自然扩展为 batch revoke。
+Milestone 3 第四批 Permit2 单项 `lockdown` 已完成，停在 Review 边界，不自动提交。用户确认后分别提交业务代码与恢复文档。下一步先按 Milestone 3 路线图重新核对剩余退出项，再选择有真实发现来源与可验证链上目标的下一种授权模型；不会为了展示协议数量制造假 ERC-721/ERC-1155/Permit 数据。
 
 ## 工作约束
 
