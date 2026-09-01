@@ -4,7 +4,7 @@
 
 ## 当前目标
 
-Milestone 2 / Batch C 的代码实现与自动化退出审计已经完成。按用户决定，Milestone 2 整体学习暂缓但不删除，学习入口已记录在下方。Milestone 3 的 ERC-20 Registry 清单、单项 revoke 与 Permit2 双层授权清单已提交；Permit2 单项 `lockdown` 已完成并停在 Review 边界。
+Milestone 2 / Batch C 的代码实现与自动化退出审计已经完成。按用户决定，Milestone 2 整体学习暂缓但不删除，学习入口已记录在下方。Milestone 3 的 ERC-20/Permit2 授权清单与单项撤销已提交；Registry 约束的 ERC-20 `approve` / Permit2 `lockdown` calldata 解码已完成并停在 Review 边界。
 
 ## 已完成
 
@@ -53,23 +53,25 @@ Milestone 2 / Batch C 的代码实现与自动化退出审计已经完成。按�
 - Milestone 3 第二批已完成 ERC-20 单项 revoke：从当前 allowance 冻结账户、链、token、spender 和原额度 Review，以完全相同的 `approve(spender, 0)` 请求先模拟再提交；Hash 返回后才保存，刷新后恢复指定 Registry target 的 Receipt，支持观察重试、replacement、Explorer 证据和成功后的 allowance 复核。
 - Milestone 3 第三批已建立 Permit2 双层授权清单：同时读取 Token→Permit2 的 ERC-20 allowance 与 Permit2→Spender 的 amount/expiration/nonce，按目标链最新区块时间区分零额度、过期、底层额度为零但可能重新生效的 dormant、当前有效和读取失败，并验证 Sepolia canonical Permit2 runtime code hash。
 - Milestone 3 第四批已完成 Permit2 单项 `lockdown`：从当前双层快照冻结账户、链、Permit2、token、spender、两层额度、expiration、nonce 和状态 Review，以完全相同的单项 tuple 请求先模拟再提交；Hash 返回后才保存，刷新后恢复 Receipt，支持观察重试、replacement、Explorer 证据和成功后的 Permit2 双层重新读取。
+- Milestone 3 第五批已建立确定性 calldata 解码边界：用户显式输入目标合约与 calldata，当前只解释 Sepolia Registry 中 ERC-20 `approve(address,uint256)` 和 canonical Permit2 `lockdown((address,address)[])`，展示成功执行时的权限效果并复用无限授权确定性 finding；未知链、合约、selector、Permit2 tuple、损坏参数、超大 calldata 或超大批次均 fail closed，不交给 AI 猜测。
 
 ## 当前未提交业务文件
 
-当前 Milestone 3 第四批待 Review 的业务文件：
+当前 Milestone 3 第五批待 Review 的业务文件：
 
-- `components/token/Permit2ApprovalInventory.tsx`
-- `components/token/Permit2ApprovalInventory.test.tsx`
-- `lib/permit2Lockdown.ts`
-- `lib/permit2Lockdown.test.ts`
-- `lib/pendingPermit2LockdownStorage.ts`
-- `lib/pendingPermit2LockdownStorage.test.ts`
+- `app/page.tsx`
+- `components/token/CalldataInspector.tsx`
+- `components/token/CalldataInspector.test.tsx`
+- `lib/calldataAnalysis.ts`
+- `lib/calldataAnalysis.test.ts`
 - `docs/LEARNING_PROGRESS.md`
 
 `docs/PRODUCT_SPEC.md` 与 `docs/PRODUCTION_ROADMAP.md` 是此前已有的未跟踪产品文档，不属于当前业务步骤，继续保持未提交。
 
 ## 最近完成的业务提交
 
+- `dd9d64f docs: checkpoint Permit2 lockdown`
+- `5d64ee9 feat: revoke Permit2 allowances`
 - `9f8f874 docs: checkpoint Permit2 approval inventory`
 - `34f4d65 feat: add Permit2 approval inventory`
 - `70fe847 docs: checkpoint approval revoke`
@@ -278,9 +280,19 @@ Receipt/RPC 错误继续保留 Hash 并锁住重复提交；加速更新 replace
 
 Milestone 3 第四批自动化证据：新增 2 个纯模块测试文件并扩展 Permit2 组件生命周期测试，共新增 21 项测试；全仓 43 个测试文件、297 项测试通过，TypeScript、ESLint、Diff 检查和 Next.js 16.2.9 生产构建通过。受限环境首次构建仍只因既有 Google Geist 字体无法联网下载而失败，允许网络后同一代码构建成功。
 
+Calldata 解码必须同时绑定 chain、目标合约身份和 ABI，不能只拿前 4-byte selector 猜函数。selector 可能碰撞，同一字节在错误合约或错误链上没有可信语义；因此本批先验证输入、限制 16 KiB，再只从目标链 Registry 解析已登记 ERC-20 或 canonical Permit2。已知合约上的未知 selector 明确标为 unsupported，已支持 selector 的截断/损坏参数标为 invalid，两者不会混成“安全”。
+
+ERC-20 `approve(spender, amount)` 的标准语义是覆盖当前 allowance，而不是在旧额度上增加 amount。解码器使用 Registry decimals 格式化整数额度：0 表示预期 revoke，精确 `maxUint256` 复用现有 `UNLIMITED_APPROVAL` 高风险 finding，其他值只描述为目标 allowance。Spender 只有命中 Approval Registry 时才显示登记标签，但合法地址本身仍可被确定性解码。
+
+Permit2 `lockdown` 的 tuple 数组按 calldata 原顺序保留，只有每个 token/spender 都命中当前 Permit2 Approval Registry 才进入支持结果；任一未知 tuple 会让整个解释 fail closed。空数组作为合法 ABI no-op 展示，不伪造权限变化；最多解释 50 项，避免大输入制造不可审阅的 UI。成功效果只描述 Permit2 内部 amount 归零，并继续明确底层 Token→Permit2 ERC-20 allowance 不变。
+
+ABI 解码不是 `eth_call` 模拟，也不含交易 envelope 中的 sender、chain、nonce、gas 和原生币 `value`。因此 UI 只使用“如果调用成功”的条件文案，并明确真实签名前仍需绑定完整请求与链上状态做模拟；解码成功不会产生“可执行”“安全”或“会成功”的结论。AI 既不参与函数识别，也不能扩大支持范围或改变确定性 finding。
+
+Milestone 3 第五批验证证据：新增 1 个纯模块测试文件、1 个组件测试文件，共新增 13 项测试；全仓 45 个测试文件、310 项测试通过，TypeScript、ESLint、Diff 检查和 Next.js 16.2.9 生产构建通过。
+
 ## 下一步
 
-Milestone 3 第四批 Permit2 单项 `lockdown` 已完成，停在 Review 边界，不自动提交。用户确认后分别提交业务代码与恢复文档。下一步先按 Milestone 3 路线图重新核对剩余退出项，再选择有真实发现来源与可验证链上目标的下一种授权模型；不会为了展示协议数量制造假 ERC-721/ERC-1155/Permit 数据。
+Milestone 3 第五批确定性 calldata 解码已完成，停在 Review 边界，不自动提交。用户确认后分别提交业务代码与恢复文档。下一批处理 typed-data signing request：先为 EIP-2612 与 Permit2 的真实 EIP-712 domain/types/message 建立链、verifyingContract、owner/spender、nonce、deadline 和额度验证，再输出可读权限意图；不会把任意 JSON 或未支持 schema 交给 AI 猜。
 
 ## 工作约束
 
