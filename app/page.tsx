@@ -1,6 +1,7 @@
 import { ApprovalRiskDemo } from '@/components/token/ApprovalRiskDemo'
 import { ApprovalInventory } from '@/components/token/ApprovalInventory'
 import { Permit2ApprovalInventory } from '@/components/token/Permit2ApprovalInventory'
+import { CalldataInspector } from '@/components/token/CalldataInspector'
 import { BatchedTransferDemo } from '@/components/token/BatchedTransferDemo'
 import { TokenTransferPanel } from '@/components/token/TokenTransferPanel'
 import { Badge } from '@/components/ui/badge'
@@ -113,6 +114,8 @@ export default function Home() {
               <ApprovalInventory />
               <div className="my-5 h-px bg-foreground/10" />
               <Permit2ApprovalInventory />
+              <div className="my-5 h-px bg-foreground/10" />
+              <CalldataInspector />
               <div className="my-5 h-px bg-foreground/10" />
               <p className="mb-3 text-sm font-medium">测试网授权风险演示</p>
               <ApprovalRiskDemo />
