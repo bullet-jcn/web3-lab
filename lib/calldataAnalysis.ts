@@ -14,7 +14,7 @@ import { listTrackedErc20ApprovalTargets } from './approvalRegistry'
 import { listSupportedErc20Assets, type SupportedErc20Asset } from './assetRegistry'
 import { permit2AllowanceAbi } from './permit2'
 import { listTrackedPermit2AllowanceTargets } from './permit2Registry'
-import { assessRisk, type RiskFinding } from './riskCheck'
+import { assessPermissionRisk, type RiskFinding } from './riskCheck'
 
 export const MAX_CALLDATA_BYTES = 16 * 1024
 export const MAX_DECODED_PERMISSION_CHANGES = 50
@@ -141,7 +141,14 @@ function decodeErc20Approve(
         formattedAmount: formatUnits(amount, asset.decimals),
         effect: amount === BigInt(0) ? 'revoke' : 'set-allowance',
         isUnlimited: amount === maxUint256,
-        riskFindings: Object.freeze(assessRisk({ functionName: 'approve', args: [spender, amount] })),
+        riskFindings: Object.freeze(assessPermissionRisk({
+          spender,
+          amount,
+          token: asset.address,
+          symbol: asset.symbol,
+          highApprovalThreshold: asset.highApprovalThreshold,
+          isSpenderRecognized: Boolean(trackedTarget),
+        })),
       }),
     }
   } catch {

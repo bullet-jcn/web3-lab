@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
-import { encodeFunctionData, erc20Abi, maxUint256 } from 'viem'
+import { useRef, useState } from 'react'
+import { encodeFunctionData, erc20Abi, formatUnits, maxUint256, type Hex } from 'viem'
+import { useConnection, usePublicClient } from 'wagmi'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { WRITE_CHAIN } from '@/lib/chains'
@@ -39,28 +40,61 @@ function permit2LockdownSample() {
 }
 
 export function CalldataInspector() {
+  const { address } = useConnection()
+  const publicClient = usePublicClient({ chainId: WRITE_CHAIN.id })
   const [target, setTarget] = useState('')
   const [calldata, setCalldata] = useState('')
   const [result, setResult] = useState<CalldataAnalysisResult | null>(null)
+  const [simulation, setSimulation] = useState<{ status: 'running' | 'error' } | { status: 'success'; blockNumber: bigint; lines: readonly string[] } | null>(null)
+  const requestId = useRef(0)
 
   function replaceInput(next: { readonly to: string; readonly data: string }) {
     setTarget(next.to)
     setCalldata(next.data)
     setResult(null)
+    setSimulation(null)
+    requestId.current += 1
   }
 
   function updateTarget(value: string) {
     setTarget(value)
     setResult(null)
+    setSimulation(null)
+    requestId.current += 1
   }
 
   function updateCalldata(value: string) {
     setCalldata(value)
     setResult(null)
+    setSimulation(null)
+    requestId.current += 1
   }
 
   function inspect() {
-    setResult(analyzeCalldata({ chainId: WRITE_CHAIN.id, to: target, data: calldata }))
+    const next = analyzeCalldata({ chainId: WRITE_CHAIN.id, to: target, data: calldata })
+    setResult(next)
+    setSimulation(null)
+    const id = ++requestId.current
+    if (next.status !== 'decoded' || !address || !publicClient) return
+    setSimulation({ status: 'running' })
+    void (async () => {
+      try {
+        const blockNumber = await publicClient.getBlockNumber()
+        await publicClient.call({ account: address, to: next.call.target, data: calldata.trim() as Hex, blockNumber })
+        const lines: string[] = []
+        if (next.call.kind === 'erc20-approve') {
+          const current = await publicClient.readContract({ address: next.call.asset.address, abi: erc20Abi, functionName: 'allowance', args: [address, next.call.spender], blockNumber })
+          lines.push(`ERC-20 allowance：${formatUnits(current, next.call.asset.decimals)} → ${next.call.formattedAmount} ${next.call.asset.symbol}`)
+        } else {
+          const current = await Promise.all(next.call.pairs.map((pair) => publicClient.readContract({ address: next.call.target, abi: permit2AllowanceAbi, functionName: 'allowance', args: [address, pair.token, pair.spender], blockNumber })))
+          current.forEach(([amount], index) => lines.push(`Permit2 #${index + 1} amount：${amount.toString()} → 0`))
+        }
+        lines.push('Token / 原生币余额：按该函数语义不转移资产（实际交易仍会消耗 Gas）')
+        if (requestId.current === id) setSimulation({ status: 'success', blockNumber, lines })
+      } catch {
+        if (requestId.current === id) setSimulation({ status: 'error' })
+      }
+    })()
   }
 
   return (
@@ -110,6 +144,11 @@ export function CalldataInspector() {
       </label>
 
       <Button onClick={inspect}>解释这笔调用</Button>
+
+      {result?.status === 'decoded' && !address && <p className="text-xs text-orange-700 dark:text-orange-300">连接钱包后可按该账户执行同区块 eth_call 与当前权限读取。</p>}
+      {simulation?.status === 'running' && <p className="text-xs text-muted-foreground">正在同一区块模拟调用并读取权限证据…</p>}
+      {simulation?.status === 'error' && <p className="text-xs text-destructive">完整请求 eth_call 或权限读取失败；不能宣称该调用当前可执行。</p>}
+      {simulation?.status === 'success' && <div className="rounded-md bg-emerald-500/10 p-3 text-xs text-emerald-700 dark:text-emerald-300"><p className="font-medium">eth_call 未 revert · block {simulation.blockNumber.toString()}</p>{simulation.lines.map((line) => <p key={line} className="mt-1">{line}</p>)}</div>}
 
       {result && result.status !== 'decoded' && (
         <div className={result.status === 'invalid'

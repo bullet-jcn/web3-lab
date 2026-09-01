@@ -4,7 +4,8 @@ import { erc20Abi, maxUint256, type Address, type Hash, type ReplacementReason }
 import { useEffect, useRef, useState } from 'react'
 import { useWaitForTransactionReceipt, useWriteContract } from 'wagmi'
 import { Button } from '../ui/button'
-import { assessRisk, formatDeterministicRiskWarning } from '@/lib/riskCheck'
+import { assessRisk, formatDeterministicRiskWarning, type RiskFinding } from '@/lib/riskCheck'
+import { saveRiskDecision } from '@/lib/riskDecisionStorage'
 import { useWalletSession } from '@/lib/hooks/useWalletSession'
 import { DEMO_ERC20_ADDRESS, DEMO_SPENDER_ADDRESS, DEMO_TRANSFER_AMOUNT } from '@/lib/constants'
 import { useWriteChainGuard } from '@/lib/hooks/useWriteChainGuard'
@@ -16,6 +17,7 @@ interface PendingApproval {
   spender: Address
   amount: bigint
   contextKey: string
+  findings: readonly RiskFinding[]
 }
 
 interface ApprovalWarning {
@@ -186,14 +188,14 @@ export function ApprovalRiskDemo() {
       const message = body.warning
       if (currentContextKeyRef.current !== requestContextKey) return
       setWarning({ message, contextKey: requestContextKey })
-      setPendingApproval({ spender, amount, contextKey: requestContextKey })
+      setPendingApproval({ spender, amount, contextKey: requestContextKey, findings })
     } catch {
       if (currentContextKeyRef.current !== requestContextKey) return
       setWarning({
         message: `AI 解释服务暂时无法连接。${deterministicWarning}`,
         contextKey: requestContextKey,
       })
-      setPendingApproval({ spender, amount, contextKey: requestContextKey })
+      setPendingApproval({ spender, amount, contextKey: requestContextKey, findings })
     } finally {
       setIsRiskChecking(false)
     }
@@ -201,7 +203,15 @@ export function ApprovalRiskDemo() {
 
   function handleConfirmDespiteRisk() {
     if (!activePendingApproval || isApprovalBusy) return
+    if (walletAddress && chainId) saveRiskDecision(window.localStorage, { account: walletAddress, chainId, operation: 'erc20-approve', target: DEMO_ERC20_ADDRESS, spender: activePendingApproval.spender, findingCodes: activePendingApproval.findings.map((finding) => finding.code), decision: 'proceeded-to-wallet' })
     submitApproval(activePendingApproval.spender, activePendingApproval.amount)
+    setWarning(null)
+    setPendingApproval(null)
+  }
+
+  function handleCancelRisk() {
+    if (!activePendingApproval || isApprovalBusy) return
+    if (walletAddress && chainId) saveRiskDecision(window.localStorage, { account: walletAddress, chainId, operation: 'erc20-approve', target: DEMO_ERC20_ADDRESS, spender: activePendingApproval.spender, findingCodes: activePendingApproval.findings.map((finding) => finding.code), decision: 'cancelled' })
     setWarning(null)
     setPendingApproval(null)
   }
@@ -250,9 +260,7 @@ export function ApprovalRiskDemo() {
         <div className="rounded-md bg-orange-50 p-3 dark:bg-orange-950">
           <p className="text-sm text-orange-600 dark:text-orange-400">{visibleWarning}</p>
           {activePendingApproval && (
-            <Button variant="destructive" onClick={handleConfirmDespiteRisk} className="mt-2" disabled={isApprovalBusy}>
-              我已了解风险，继续
-            </Button>
+            <div className="mt-2 flex gap-2"><Button variant="outline" onClick={handleCancelRisk} disabled={isApprovalBusy}>取消本次授权</Button><Button variant="destructive" onClick={handleConfirmDespiteRisk} disabled={isApprovalBusy}>我已了解风险，继续</Button></div>
           )}
         </div>
       )}

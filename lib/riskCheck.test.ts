@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { maxUint256, type Address } from 'viem'
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
-import { assessRisk, formatDeterministicRiskWarning, MAX_RISK_FINDINGS, parseRiskFindingsRequest } from './riskCheck'
+import { assessPermissionRisk, assessRisk, formatDeterministicRiskWarning, MAX_RISK_FINDINGS, parseRiskFindingsRequest } from './riskCheck'
 
 function randomAddress(): Address {
   return privateKeyToAccount(generatePrivateKey()).address
@@ -73,5 +73,18 @@ describe('formatDeterministicRiskWarning', () => {
     expect(warning).toContain('无限额度代币使用权')
     expect(warning).toContain(spender)
     expect(warning).toContain('不会随本次操作自动失效')
+  })
+})
+
+describe('expanded permission evidence', () => {
+  it('detects policy-high amounts, unknown spenders, context mismatch, and expiry', () => {
+    const spender = randomAddress()
+    const owner = randomAddress()
+    const activeAccount = randomAddress()
+    const token = randomAddress()
+    const findings = assessPermissionRisk({ spender, amount: BigInt(1_000), token, symbol: 'TEST', highApprovalThreshold: BigInt(1_000), isSpenderRecognized: false, owner, activeAccount, requestedChainId: 11155111, activeChainId: 1, deadline: BigInt(99), observedAt: BigInt(100) })
+    expect(findings.map((finding) => finding.code)).toEqual(['HIGH_APPROVAL', 'UNRECOGNIZED_SPENDER', 'ACCOUNT_MISMATCH', 'CHAIN_MISMATCH', 'EXPIRED_DEADLINE'])
+    expect(parseRiskFindingsRequest({ findings })).toEqual({ ok: true, findings })
+    expect(formatDeterministicRiskWarning(findings)).toContain('不等于恶意')
   })
 })

@@ -7,6 +7,7 @@ const CHAIN_ID = 11155111
 const APPROVAL_HASH = `0x${'01'.repeat(32)}` as `0x${string}`
 const REPLACEMENT_HASH = `0x${'02'.repeat(32)}` as `0x${string}`
 const APPROVAL_STORAGE_KEY = `web3-lab:pending-tx:v1:${CHAIN_ID}:${ACCOUNT}:approval`
+const RISK_DECISION_STORAGE_KEY = `web3-lab:risk-decisions:v1:${CHAIN_ID}:${ACCOUNT}`
 
 function seedPendingApproval(hash = APPROVAL_HASH) {
   localStorage.setItem(APPROVAL_STORAGE_KEY, JSON.stringify({
@@ -126,6 +127,21 @@ describe('ApprovalRiskDemo lifecycle', () => {
     fireEvent.click(confirmButton)
 
     expect(mocks.writeContract).toHaveBeenCalledTimes(1)
+    expect(localStorage.getItem(RISK_DECISION_STORAGE_KEY)).toContain('proceeded-to-wallet')
+  })
+
+  it('persists a cancellation decision without storing AI prose or a signature', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ warning: 'AI generated prose' }) }))
+    render(<ApprovalRiskDemo />)
+    fireEvent.click(screen.getByRole('button', { name: '无限额度授权（演示风险）' }))
+    const cancel = await screen.findByRole('button', { name: '取消本次授权' })
+    fireEvent.click(cancel)
+    const stored = localStorage.getItem(RISK_DECISION_STORAGE_KEY) ?? ''
+    expect(stored).toContain('cancelled')
+    expect(stored).toContain('UNLIMITED_APPROVAL')
+    expect(stored).not.toContain('AI generated prose')
+    expect(stored).not.toContain('signature')
+    expect(mocks.writeContract).not.toHaveBeenCalled()
   })
 
   it('does not treat an explicit API rejection as an AI-only outage', async () => {

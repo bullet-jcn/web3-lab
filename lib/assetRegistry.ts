@@ -9,6 +9,11 @@ export interface SupportedErc20Asset {
   readonly symbol: string
   readonly decimals: number
   readonly address: Address
+  readonly highApprovalThreshold: bigint
+  readonly eip2612Domain?: {
+    readonly name: string
+    readonly version: string
+  }
 }
 
 export const SEPOLIA_USDC_ASSET: SupportedErc20Asset = Object.freeze({
@@ -19,6 +24,8 @@ export const SEPOLIA_USDC_ASSET: SupportedErc20Asset = Object.freeze({
   symbol: 'USDC',
   decimals: 6,
   address: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
+  highApprovalThreshold: BigInt(1_000_000_000),
+  eip2612Domain: Object.freeze({ name: 'USDC', version: '2' }),
 })
 
 const ERC20_ASSETS_BY_CHAIN: Readonly<Record<number, Readonly<Record<string, SupportedErc20Asset>>>> = Object.freeze({

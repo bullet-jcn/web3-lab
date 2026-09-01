@@ -1,8 +1,12 @@
-import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { CalldataInspector } from './CalldataInspector'
 
+const mocks = vi.hoisted(() => ({ address: undefined as `0x${string}` | undefined, getBlockNumber: vi.fn(), call: vi.fn(), readContract: vi.fn() }))
+vi.mock('wagmi', () => ({ useConnection: () => ({ address: mocks.address }), usePublicClient: () => ({ getBlockNumber: mocks.getBlockNumber, call: mocks.call, readContract: mocks.readContract }) }))
+
 describe('CalldataInspector', () => {
+  beforeEach(() => { mocks.address = undefined; mocks.getBlockNumber.mockReset().mockResolvedValue(BigInt(123)); mocks.call.mockReset().mockResolvedValue({ data: '0x01' }); mocks.readContract.mockReset().mockResolvedValue(BigInt(500_000)) })
   it('explains a registered unlimited ERC-20 approval with deterministic risk evidence', () => {
     render(<CalldataInspector />)
 
@@ -58,5 +62,17 @@ describe('CalldataInspector', () => {
 
     expect(screen.getByText(/解码只说明 ABI 参数/)).toHaveTextContent('不证明调用会成功')
     expect(screen.getByText(/解码只说明 ABI 参数/)).toHaveTextContent('原生币 value')
+  })
+
+  it('simulates and reads the current permission at one block for a connected account', async () => {
+    mocks.address = '0x0000000000000000000000000000000000000001'
+    render(<CalldataInspector />)
+    fireEvent.click(screen.getByRole('button', { name: '载入 ERC-20 approve 样例' }))
+    fireEvent.click(screen.getByRole('button', { name: '解释这笔调用' }))
+    expect(await screen.findByText(/eth_call 未 revert · block 123/)).toBeInTheDocument()
+    expect(screen.getByText(/ERC-20 allowance：0.5 →/)).toBeInTheDocument()
+    expect(screen.getByText(/不转移资产/)).toHaveTextContent('Gas')
+    await waitFor(() => expect(mocks.call).toHaveBeenCalledWith(expect.objectContaining({ blockNumber: BigInt(123) })))
+    expect(mocks.readContract).toHaveBeenCalledWith(expect.objectContaining({ blockNumber: BigInt(123) }))
   })
 })
