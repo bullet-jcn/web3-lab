@@ -4,7 +4,7 @@
 
 ## 当前目标
 
-Milestone 2 / Batch C 的代码实现与自动化退出审计已经完成。下一阶段先进行 Milestone 2 整体学习复盘，把真实转账表单、金额与余额、Gas、Review、恢复状态、地址输入来源、ENS 和钱包连接层串成一套可解释架构，再决定是否进入 Milestone 3。
+Milestone 2 / Batch C 的代码实现与自动化退出审计已经完成。按用户决定，Milestone 2 整体学习暂缓但不删除，学习入口已记录在下方；当前进入 Milestone 3，先建立覆盖范围诚实、可验证的授权清单基础，再扩展撤销、签名解码、模拟与风险证据。
 
 ## 已完成
 
@@ -49,23 +49,22 @@ Milestone 2 / Batch C 的代码实现与自动化退出审计已经完成。下�
 - ETH/ERC-20 收款输入已加入显式 ENS 解析：名称先经 viem ENS normalization 与 255-byte 边界校验，再固定查询写链；只有当前请求、当前输入和解析链仍一致时，返回地址才经 checksum/零地址校验后回填。未注册、RPC 失败或迟到结果均 fail closed，不会自动进入 Review 或钱包请求。
 - 钱包连接层已接入可配置 WalletConnect 与明确的钱包选择：injected、EIP-6963 发现的钱包和 WalletConnect 作为独立 connector 展示；连接尝试、Wagmi 已连接、自动恢复、用户拒绝、connector 缺失、WalletConnect 未配置和切链失败使用不同状态，不再固定选择 `connectors[0]` 或由组件自行宣布“连接成功”。
 - Milestone 2 最终代码审计已逐条覆盖路线图六项：validated forms、decimals、metadata/balance/max、address book/clipboard/ENS/checksum、Gas/Review/Explorer/retry/replacement 和 WalletConnect/selection 均有实现与自动化证据。真实移动钱包二维码配对与真实测试网交易哈希尚无仓库证据，继续作为手动发布验证边界明确保留，不虚构为已完成。
+- Milestone 3 第一批已建立显式 Approval Registry 与 ERC-20 授权清单：读取当前连接账户在写链上的已登记 token/spender allowance，区分读取中、读取失败、零额度、有效额度和 uint256 最大值无限授权，并支持手动刷新。界面明确声明这是应用 Registry 的有限覆盖，不冒充完整钱包授权扫描。
 
 ## 当前未提交业务文件
 
-当前 Milestone 2 钱包连接收尾代码待按用户授权提交：
+当前 Milestone 3 第一批待 Review 的业务文件：
 
-- `.env.example`
-- `README.md`
-- `components/wallet/WalletConnectPanel.tsx`
-- `components/wallet/WalletConnectPanel.test.tsx`
-- `lib/wagmiConfig.ts`
-- `lib/walletConnection.ts`
-- `lib/walletConnection.test.ts`
-- `package.json`
-- `package-lock.json`
+- `app/page.tsx`
+- `components/token/ApprovalInventory.tsx`
+- `components/token/ApprovalInventory.test.tsx`
+- `lib/approvalRegistry.ts`
+- `lib/approvalRegistry.test.ts`
+- `lib/approvalInventory.ts`
+- `lib/approvalInventory.test.ts`
 - `docs/LEARNING_PROGRESS.md`
 
-`docs/PRODUCT_SPEC.md` 与 `docs/PRODUCTION_ROADMAP.md` 是此前已有的未跟踪产品文档，不属于当前业务步骤。
+`docs/PRODUCT_SPEC.md` 与 `docs/PRODUCTION_ROADMAP.md` 是此前已有的未跟踪产品文档，不属于当前业务步骤，继续保持未提交。
 
 ## 最近完成的业务提交
 
@@ -205,9 +204,41 @@ WalletConnect 使用 Wagmi 官方 connector 与 `@walletconnect/ethereum-provide
 
 Milestone 2 最终自动化证据：33 个测试文件、225 项测试通过，TypeScript、ESLint、Diff 检查、离线 `npm ci --dry-run`、离线 production dependency audit（0 vulnerabilities）和启用 WalletConnect connector 分支的 Next.js 16.2.9 生产构建通过；本地生产服务返回 HTTP 200。Browser 技能确认当前会话没有可用浏览器实例，因此没有伪装可视化点击证据；仓库也没有真实 WalletConnect 二维码配对或普通转账测试网 Hash，这两项必须在获得真实 Reown project ID 与用户钱包授权后手动补证。
 
+## Milestone 2 延后学习入口
+
+当用户下次说“学习第二阶段”时，从本节开始，不重新开发代码，也不依赖旧聊天上下文。学习顺序：
+
+1. 输入边界：手动地址、剪贴板、地址簿和 ENS 如何统一变成经过 checksum/零地址校验的收款地址。
+2. 金额边界：人类十进制字符串如何按 ETH 或 Token decimals 转成 `bigint` 最小单位，为什么不能使用 JavaScript 浮点数。
+3. 资产与余额边界：Chain-scoped Asset Registry、链上 metadata 一致性校验、余额判断和最大金额。
+4. Gas 与模拟边界：ETH 和 ERC-20 为什么需要不同的资产预算，以及估算、模拟和最终 Receipt 分别证明什么。
+5. Review 边界：为什么 Review 必须冻结一份意图与证据快照，输入或账户、链、余额变化后为什么必须失效。
+6. 交易生命周期：钱包请求、Hash、Receipt、revert、replacement、观察错误、Explorer 证据和安全重试。
+7. 恢复边界：刷新后只恢复公开交易标识和观察状态，为什么不能自动重发钱包请求。
+8. 钱包连接边界：connector、connection、SIWE session、active account 和 active chain 为什么是不同状态。
+
+代码入口：
+
+- 输入：`lib/transferRecipient.ts`、`lib/transferEns.ts`、`lib/addressBookStorage.ts`
+- 金额与资产：`lib/nativeTransferInput.ts`、`lib/erc20TransferInput.ts`、`lib/assetRegistry.ts`
+- 余额、Gas 与 Review：`lib/nativeTransferBudget.ts`、`lib/transferReview.ts`
+- 生命周期与恢复：`lib/transactionState.ts`、`lib/pendingTransactionStorage.ts`
+- 完整业务编排：`components/token/TokenTransferPanel.tsx`
+- 钱包层：`lib/wagmiConfig.ts`、`lib/walletConnection.ts`、`components/wallet/WalletConnectPanel.tsx`
+
+第二阶段的核心心智模型固定为：不可信输入来源 → 规范化交易意图 → 指定链上的余额/模拟/Gas 证据 → 冻结 Review → 钱包请求 → 链上 Receipt 观察与刷新恢复。前一步的 UI 成功不替代后一步的链上证据。
+
+Milestone 3 授权清单不能仅靠 ERC-20 `allowance(owner, spender)` 完整发现：该函数要求调用方事先知道 spender，没有“列出 owner 全部 spender”的链上枚举接口。因此第一批把发现来源明确建模为应用 Approval Registry，并复用 Asset Registry 中已确认的 token 身份和 decimals。未来扩大覆盖必须接入可信事件历史、索引器或后端并展示其区块范围，不能只添加“全量扫描”文案。
+
+每个 Registry 目标绑定 `chainId + asset + spender + source`，合约读取固定使用写链和当前连接账户。`allowFailure: true` 保留每个 token/spender 的独立结果；顶层 RPC 错误、单项失败、缺失结果和非 `bigint` 数据统一归为“结果未知”，绝不误报为零授权。只有链上明确返回 0 才显示未授权，只有精确等于 `maxUint256` 才标记无限授权。
+
+本批只做读取基础，不提前混入 revoke 写操作。这样下一批可以直接以本次链上快照生成 `approve(spender, 0)` 的 Review，经过模拟、Chain Guard、钱包确认、Hash 持久化和 Receipt 观察，再刷新同一个清单验证额度确实归零。ERC-721、ERC-1155、Permit 和 Permit2 要等各自真实 Registry/发现来源和协议语义落地后再加入，当前不制造假覆盖。
+
+Milestone 3 第一批验证证据：新增 3 个测试文件、13 项测试；全仓 36 个测试文件、238 项测试通过，TypeScript、ESLint 和 Diff 检查通过。Next.js 16.2.9 生产构建第一次仅因受限网络无法下载项目既有 Google Geist 字体失败，联网重跑后成功。
+
 ## 下一步
 
-按用户本轮授权分别提交钱包连接业务代码与 Milestone 2 恢复文档。提交后明确通知 Milestone 2 代码阶段结束，并开始整体学习复盘；不直接进入 Milestone 3。GitHub 当前 DNS 解析失败只影响 push，不影响本地 commit，恢复网络后再推送。
+Milestone 3 第一批已完成，停在 Review 边界，不自动提交。用户确认后提交本批；下一批基于已读取的 ERC-20 快照实现单项 revoke（`approve(spender, 0)`）的冻结 Review、合约模拟、Chain Guard、钱包/Receipt 生命周期、待确认恢复与清单刷新，再考虑批量 revoke。
 
 ## 工作约束
 
