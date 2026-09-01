@@ -4,7 +4,7 @@
 
 ## 当前目标
 
-Milestone 2 / Batch C 的代码实现与自动化退出审计已经完成。按用户决定，Milestone 2 整体学习暂缓但不删除，学习入口已记录在下方；当前进入 Milestone 3，先建立覆盖范围诚实、可验证的授权清单基础，再扩展撤销、签名解码、模拟与风险证据。
+Milestone 2 / Batch C 的代码实现与自动化退出审计已经完成。按用户决定，Milestone 2 整体学习暂缓但不删除，学习入口已记录在下方。Milestone 3 的 ERC-20 Registry 授权清单已提交，单项 revoke 的 Review、模拟、交易恢复与结果核验已完成并停在 Review 边界。
 
 ## 已完成
 
@@ -50,24 +50,26 @@ Milestone 2 / Batch C 的代码实现与自动化退出审计已经完成。按�
 - 钱包连接层已接入可配置 WalletConnect 与明确的钱包选择：injected、EIP-6963 发现的钱包和 WalletConnect 作为独立 connector 展示；连接尝试、Wagmi 已连接、自动恢复、用户拒绝、connector 缺失、WalletConnect 未配置和切链失败使用不同状态，不再固定选择 `connectors[0]` 或由组件自行宣布“连接成功”。
 - Milestone 2 最终代码审计已逐条覆盖路线图六项：validated forms、decimals、metadata/balance/max、address book/clipboard/ENS/checksum、Gas/Review/Explorer/retry/replacement 和 WalletConnect/selection 均有实现与自动化证据。真实移动钱包二维码配对与真实测试网交易哈希尚无仓库证据，继续作为手动发布验证边界明确保留，不虚构为已完成。
 - Milestone 3 第一批已建立显式 Approval Registry 与 ERC-20 授权清单：读取当前连接账户在写链上的已登记 token/spender allowance，区分读取中、读取失败、零额度、有效额度和 uint256 最大值无限授权，并支持手动刷新。界面明确声明这是应用 Registry 的有限覆盖，不冒充完整钱包授权扫描。
+- Milestone 3 第二批已完成 ERC-20 单项 revoke：从当前 allowance 冻结账户、链、token、spender 和原额度 Review，以完全相同的 `approve(spender, 0)` 请求先模拟再提交；Hash 返回后才保存，刷新后恢复指定 Registry target 的 Receipt，支持观察重试、replacement、Explorer 证据和成功后的 allowance 复核。
 
 ## 当前未提交业务文件
 
-当前 Milestone 3 第一批待 Review 的业务文件：
+当前 Milestone 3 第二批待 Review 的业务文件：
 
-- `app/page.tsx`
 - `components/token/ApprovalInventory.tsx`
 - `components/token/ApprovalInventory.test.tsx`
-- `lib/approvalRegistry.ts`
-- `lib/approvalRegistry.test.ts`
-- `lib/approvalInventory.ts`
-- `lib/approvalInventory.test.ts`
+- `lib/approvalRevoke.ts`
+- `lib/approvalRevoke.test.ts`
+- `lib/pendingApprovalRevokeStorage.ts`
+- `lib/pendingApprovalRevokeStorage.test.ts`
 - `docs/LEARNING_PROGRESS.md`
 
 `docs/PRODUCT_SPEC.md` 与 `docs/PRODUCTION_ROADMAP.md` 是此前已有的未跟踪产品文档，不属于当前业务步骤，继续保持未提交。
 
 ## 最近完成的业务提交
 
+- `70e5c03 docs: checkpoint approval inventory`
+- `21a4093 feat: add tracked approval inventory`
 - `d553b73 fix: track sequential batch receipts`
 - `0631125 feat: map atomic batch lifecycle states`
 - `3b329a1 feat: track approval lifecycle states`
@@ -232,13 +234,23 @@ Milestone 3 授权清单不能仅靠 ERC-20 `allowance(owner, spender)` 完整�
 
 每个 Registry 目标绑定 `chainId + asset + spender + source`，合约读取固定使用写链和当前连接账户。`allowFailure: true` 保留每个 token/spender 的独立结果；顶层 RPC 错误、单项失败、缺失结果和非 `bigint` 数据统一归为“结果未知”，绝不误报为零授权。只有链上明确返回 0 才显示未授权，只有精确等于 `maxUint256` 才标记无限授权。
 
-本批只做读取基础，不提前混入 revoke 写操作。这样下一批可以直接以本次链上快照生成 `approve(spender, 0)` 的 Review，经过模拟、Chain Guard、钱包确认、Hash 持久化和 Receipt 观察，再刷新同一个清单验证额度确实归零。ERC-721、ERC-1155、Permit 和 Permit2 要等各自真实 Registry/发现来源和协议语义落地后再加入，当前不制造假覆盖。
+第一批只做读取基础，没有提前混入 revoke 写操作。ERC-721、ERC-1155、Permit 和 Permit2 仍要等各自真实 Registry/发现来源和协议语义落地后再加入，当前不制造假覆盖。
 
 Milestone 3 第一批验证证据：新增 3 个测试文件、13 项测试；全仓 36 个测试文件、238 项测试通过，TypeScript、ESLint 和 Diff 检查通过。Next.js 16.2.9 生产构建第一次仅因受限网络无法下载项目既有 Google Geist 字体失败，联网重跑后成功。
 
+单项 revoke 的 Review 不是一个普通确认弹窗：它冻结产生当前 allowance 的账户、链、Registry target、token、spender 和原始额度；钱包账户、active chain、Registry 身份或最新 allowance 任一变化都会使旧 Review 失效。模拟请求和最终 `writeContract` 请求是同一个 Wagmi request，避免“模拟 A、签署 B”。钱包不在写链时仍可读取清单，但写入口由 Chain Guard 阻断。
+
+revoke 使用独立的 `web3-lab:pending-approval-revoke:v1` 存储，因为通用 approval Hash 无法说明正在撤销哪个 Registry target。记录每个账户和目标链至多一笔未决 revoke，只保存公开 target ID、Hash 和时间；严格校验账户、链、target ID、Hash 与 24 小时 TTL，恢复时还会再次确认 target 仍存在于当前 Registry。未知或已移除 target 不会被恢复。
+
+Receipt 观察固定在目标链，不依赖钱包后来切到哪条 active chain。观察/RPC 错误保留 Hash 并锁住重复提交，只允许重查同一 Receipt；`repriced` 跟踪 replacement Hash，`cancelled` 或不同内容 replacement 清除原 revoke。Viem 查询成功不等于合约成功，因此还显式检查 Receipt `status`：`reverted` 不会刷新或宣称撤销成功。
+
+即使 Receipt 为 `success`，产品也只说“撤销交易已确认”，随后重新读取真实 allowance。只有读数明确为 0 才显示权限已归零；仍非零时提示并发授权或非标准代币行为，读取失败时保持待核验。这避免把一次成功执行的合约调用直接等同于最终权限状态。
+
+Milestone 3 第二批验证证据：新增 2 个纯模块测试文件并扩展组件生命周期测试，共新增 20 项测试；全仓 38 个测试文件、258 项测试通过，TypeScript、ESLint、Diff 检查和 Next.js 16.2.9 生产构建通过。受限环境的首次构建仍只因既有 Google Geist 字体下载失败，联网重跑成功。
+
 ## 下一步
 
-Milestone 3 第一批已完成，停在 Review 边界，不自动提交。用户确认后提交本批；下一批基于已读取的 ERC-20 快照实现单项 revoke（`approve(spender, 0)`）的冻结 Review、合约模拟、Chain Guard、钱包/Receipt 生命周期、待确认恢复与清单刷新，再考虑批量 revoke。
+Milestone 3 第二批单项 revoke 已完成，停在 Review 边界，不自动提交。用户确认后分别提交业务代码与恢复文档。下一批先审计 ERC-721、ERC-1155、Permit 和 Permit2 的不同发现/读取语义并核实真实支持目标；只有 Registry 中存在多个真实可撤销权限时才实现 batch revoke，不能为展示批量功能复制假 target。
 
 ## 工作约束
 
