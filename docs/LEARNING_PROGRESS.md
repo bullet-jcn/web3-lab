@@ -4,7 +4,7 @@
 
 ## 当前目标
 
-Milestone 2 / Batch C 的代码实现与自动化退出审计已经完成。按用户决定，Milestone 2 整体学习暂缓但不删除，学习入口已记录在下方。Milestone 3 的 ERC-20/Permit2 授权清单与单项撤销已提交；Registry 约束的 ERC-20 `approve` / Permit2 `lockdown` calldata 解码已完成并停在 Review 边界。
+Milestone 2 / Batch C 与 Milestone 3 的支持范围代码实现和自动化退出审计已经完成。按用户决定，两阶段整体学习暂缓但不删除，学习入口和设计证据保留在本文件。Milestone 3 最终收尾批次已完成并停在 Review 边界；下一代码阶段是 Milestone 4 后端与运维。
 
 ## 已完成
 
@@ -54,16 +54,27 @@ Milestone 2 / Batch C 的代码实现与自动化退出审计已经完成。按�
 - Milestone 3 第三批已建立 Permit2 双层授权清单：同时读取 Token→Permit2 的 ERC-20 allowance 与 Permit2→Spender 的 amount/expiration/nonce，按目标链最新区块时间区分零额度、过期、底层额度为零但可能重新生效的 dormant、当前有效和读取失败，并验证 Sepolia canonical Permit2 runtime code hash。
 - Milestone 3 第四批已完成 Permit2 单项 `lockdown`：从当前双层快照冻结账户、链、Permit2、token、spender、两层额度、expiration、nonce 和状态 Review，以完全相同的单项 tuple 请求先模拟再提交；Hash 返回后才保存，刷新后恢复 Receipt，支持观察重试、replacement、Explorer 证据和成功后的 Permit2 双层重新读取。
 - Milestone 3 第五批已建立确定性 calldata 解码边界：用户显式输入目标合约与 calldata，当前只解释 Sepolia Registry 中 ERC-20 `approve(address,uint256)` 和 canonical Permit2 `lockdown((address,address)[])`，展示成功执行时的权限效果并复用无限授权确定性 finding；未知链、合约、selector、Permit2 tuple、损坏参数、超大 calldata 或超大批次均 fail closed，不交给 AI 猜测。
+- Milestone 3 最终收尾批次已完成 EIP-2612 Permit 与 Permit2 PermitSingle 的严格 EIP-712 解析、domain/整数位宽/digest/账户/链/deadline 校验；calldata 解码器接入同一区块 `eth_call` 与权限前后证据；确定性规则扩展至产品阈值高额度、未知 spender、账户/链不一致和过期 deadline；授权风险用户的继续/取消决定以最小公开 finding code 记录持久化，不保存 AI 文案、原始 calldata/typed data 或签名。
 
 ## 当前未提交业务文件
 
-当前 Milestone 3 第五批待 Review 的业务文件：
+当前 Milestone 3 最终收尾批次待 Review 的业务文件：
 
 - `app/page.tsx`
+- `components/token/ApprovalRiskDemo.tsx`
+- `components/token/ApprovalRiskDemo.test.tsx`
 - `components/token/CalldataInspector.tsx`
 - `components/token/CalldataInspector.test.tsx`
+- `components/token/TypedDataInspector.tsx`
+- `components/token/TypedDataInspector.test.tsx`
+- `lib/assetRegistry.ts`
 - `lib/calldataAnalysis.ts`
-- `lib/calldataAnalysis.test.ts`
+- `lib/riskCheck.ts`
+- `lib/riskCheck.test.ts`
+- `lib/riskDecisionStorage.ts`
+- `lib/riskDecisionStorage.test.ts`
+- `lib/typedDataAnalysis.ts`
+- `lib/typedDataAnalysis.test.ts`
 - `docs/LEARNING_PROGRESS.md`
 
 `docs/PRODUCT_SPEC.md` 与 `docs/PRODUCTION_ROADMAP.md` 是此前已有的未跟踪产品文档，不属于当前业务步骤，继续保持未提交。
@@ -290,9 +301,23 @@ ABI 解码不是 `eth_call` 模拟，也不含交易 envelope 中的 sender、ch
 
 Milestone 3 第五批验证证据：新增 1 个纯模块测试文件、1 个组件测试文件，共新增 13 项测试；全仓 45 个测试文件、310 项测试通过，TypeScript、ESLint、Diff 检查和 Next.js 16.2.9 生产构建通过。
 
+EIP-712 不是“把 JSON 展示一下”：解析器要求顶层字段、primary type、每个 struct 字段名称/类型/顺序、整数宽度和 address 全部匹配支持 schema，再绑定 Registry chain 与 verifyingContract。EIP-2612 domain 的 name/version 使用 Sepolia USDC 合约真实只读核验值 `USDC` / `2`，链上 `DOMAIN_SEPARATOR` 为 `0xb90e5057db141a932946e64d09ccb7ffc9b00bd79fec26f698d29af0c83320a6`；Permit2 domain 固定为官方实现的 name `Permit2`、chainId 与 canonical 合约地址。规范化后用 viem 计算 digest，未知 schema/domain 不由 AI 猜。
+
+EIP-2612 Permit 把 owner、spender、value、nonce、deadline 一起签名，成功提交后覆盖普通 ERC-20 allowance；Permit2 PermitSingle 把 token、uint160 amount、uint48 expiration/nonce、spender、sigDeadline 绑定在签名中，只改变 Permit2 内部权限。typed-data UI 使用目标链区块 timestamp 检查 deadline，比较消息 owner 与当前账户、domain chain 与 active chain，并明确链下签名可能由第三方提交，解析页面本身不会请求签名。
+
+Calldata 模拟证据固定到同一个目标链 block number：先以连接账户作为 `msg.sender` 执行完整 `eth_call`，再在相同区块读取 ERC-20 allowance 或 Permit2 allowance，展示当前值到 ABI 确定目标值的变化。`eth_call` 未 revert 只证明该区块/账户下调用路径可执行，不等于矿工最终打包，也不是通用 trace state-diff；approve/lockdown 按函数语义不转移 Token 或原生币，但真实交易仍消耗 Gas。
+
+高额度不是普适真理，而是显式产品策略：Sepolia USDC Registry 当前阈值为 1,000 USDC（1,000,000,000 最小单位），命中时证据同时保存原始 amount 与 threshold；精确最大整数继续作为无限授权高风险。未登记 spender 只标为“无法提供可信标签”，不直接宣称恶意。账户不一致、active chain 不一致和 deadline 过期使用独立 finding，AI 只能解释这些已确定证据。
+
+风险决定记录使用 `web3-lab:risk-decisions:v1`，按账户/链隔离，最多 50 条、90 天过期并严格校验。记录只包含操作类型、公开 target/spender、finding code、`proceeded-to-wallet` 或 `cancelled` 与时间；不保存 AI 输出、金额 payload、calldata、typed data、签名或私钥。这里记录的是用户决定进入或退出钱包请求，不伪装成交易成功证据。
+
+Milestone 3 支持范围退出结论：ERC-20 与 Permit2 的库存、单项撤销、calldata、EIP-2612/Permit2 typed data、模拟/权限变化、确定性规则和风险决定恢复已经形成闭环。ERC-721/ERC-1155、真正多目标 batch revoke、合约源码验证/部署年龄/proxy implementation 变化仍缺真实 Registry 或外部证据源，明确不制造假数据；它们是覆盖扩展，不阻断“支持调用”的 Milestone 3 退出条件，并将在 Milestone 4 的索引/RPC/运营数据层具备后扩展。
+
+Milestone 3 最终自动化证据：全仓 48 个测试文件、328 项测试通过，TypeScript、ESLint、Diff 检查和 Next.js 16.2.9 生产构建通过。生产构建第一次因既有 Google Geist 字体网络请求失败，同一代码联网重试成功；没有伪造真实钱包签名、真实 Permit 提交或通用 trace 模拟证据。
+
 ## 下一步
 
-Milestone 3 第五批确定性 calldata 解码已完成，停在 Review 边界，不自动提交。用户确认后分别提交业务代码与恢复文档。下一批处理 typed-data signing request：先为 EIP-2612 与 Permit2 的真实 EIP-712 domain/types/message 建立链、verifyingContract、owner/spender、nonce、deadline 和额度验证，再输出可读权限意图；不会把任意 JSON 或未支持 schema 交给 AI 猜。
+Milestone 3 支持范围代码已完成，最终收尾批次停在 Review 边界，不自动提交。用户确认后分别提交业务代码与恢复文档。下一步进入 Milestone 4：先设计 PostgreSQL/Redis 边界与本地开发基础设施，把 revocable session、风险报告、交易意图和幂等/限流从浏览器或进程内状态迁移到可运营后端；Milestone 2/3 的集中学习继续保留到用户要求时再进行。
 
 ## 工作约束
 
