@@ -1,4 +1,5 @@
 import { ApprovalRiskDemo } from '@/components/token/ApprovalRiskDemo'
+import { ApprovalInventory } from '@/components/token/ApprovalInventory'
 import { BatchedTransferDemo } from '@/components/token/BatchedTransferDemo'
 import { TokenTransferPanel } from '@/components/token/TokenTransferPanel'
 import { Badge } from '@/components/ui/badge'
@@ -107,7 +108,10 @@ export default function Home() {
                 <TokenTransferPanel />
               </Section>
             </div>
-            <Section icon={Bot} eyebrow="Security Copilot" title="签名前风险检测" description="识别无限授权等高风险交易意图。" accent>
+            <Section icon={Bot} eyebrow="Approval Security" title="授权清单与签名前风险" description="读取已登记授权，并识别无限授权等高风险交易意图。" accent>
+              <ApprovalInventory />
+              <div className="my-5 h-px bg-foreground/10" />
+              <p className="mb-3 text-sm font-medium">测试网授权风险演示</p>
               <ApprovalRiskDemo />
             </Section>
           </div>
