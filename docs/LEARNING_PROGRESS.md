@@ -4,7 +4,7 @@
 
 ## 当前目标
 
-Milestone 2 / Batch C 的代码实现与自动化退出审计已经完成。按用户决定，Milestone 2 整体学习暂缓但不删除，学习入口已记录在下方。Milestone 3 的 ERC-20 Registry 授权清单已提交，单项 revoke 的 Review、模拟、交易恢复与结果核验已完成并停在 Review 边界。
+Milestone 2 / Batch C 的代码实现与自动化退出审计已经完成。按用户决定，Milestone 2 整体学习暂缓但不删除，学习入口已记录在下方。Milestone 3 的 ERC-20 Registry 清单与单项 revoke 已提交；Permit2 双层授权清单已完成并停在 Review 边界。
 
 ## 已完成
 
@@ -51,23 +51,28 @@ Milestone 2 / Batch C 的代码实现与自动化退出审计已经完成。按�
 - Milestone 2 最终代码审计已逐条覆盖路线图六项：validated forms、decimals、metadata/balance/max、address book/clipboard/ENS/checksum、Gas/Review/Explorer/retry/replacement 和 WalletConnect/selection 均有实现与自动化证据。真实移动钱包二维码配对与真实测试网交易哈希尚无仓库证据，继续作为手动发布验证边界明确保留，不虚构为已完成。
 - Milestone 3 第一批已建立显式 Approval Registry 与 ERC-20 授权清单：读取当前连接账户在写链上的已登记 token/spender allowance，区分读取中、读取失败、零额度、有效额度和 uint256 最大值无限授权，并支持手动刷新。界面明确声明这是应用 Registry 的有限覆盖，不冒充完整钱包授权扫描。
 - Milestone 3 第二批已完成 ERC-20 单项 revoke：从当前 allowance 冻结账户、链、token、spender 和原额度 Review，以完全相同的 `approve(spender, 0)` 请求先模拟再提交；Hash 返回后才保存，刷新后恢复指定 Registry target 的 Receipt，支持观察重试、replacement、Explorer 证据和成功后的 allowance 复核。
+- Milestone 3 第三批已建立 Permit2 双层授权清单：同时读取 Token→Permit2 的 ERC-20 allowance 与 Permit2→Spender 的 amount/expiration/nonce，按目标链最新区块时间区分零额度、过期、底层额度为零但可能重新生效的 dormant、当前有效和读取失败，并验证 Sepolia canonical Permit2 runtime code hash。
 
 ## 当前未提交业务文件
 
-当前 Milestone 3 第二批待 Review 的业务文件：
+当前 Milestone 3 第三批待 Review 的业务文件：
 
-- `components/token/ApprovalInventory.tsx`
-- `components/token/ApprovalInventory.test.tsx`
-- `lib/approvalRevoke.ts`
-- `lib/approvalRevoke.test.ts`
-- `lib/pendingApprovalRevokeStorage.ts`
-- `lib/pendingApprovalRevokeStorage.test.ts`
+- `app/page.tsx`
+- `components/token/Permit2ApprovalInventory.tsx`
+- `components/token/Permit2ApprovalInventory.test.tsx`
+- `lib/permit2.ts`
+- `lib/permit2Registry.ts`
+- `lib/permit2Registry.test.ts`
+- `lib/permit2Inventory.ts`
+- `lib/permit2Inventory.test.ts`
 - `docs/LEARNING_PROGRESS.md`
 
 `docs/PRODUCT_SPEC.md` 与 `docs/PRODUCTION_ROADMAP.md` 是此前已有的未跟踪产品文档，不属于当前业务步骤，继续保持未提交。
 
 ## 最近完成的业务提交
 
+- `70fe847 docs: checkpoint approval revoke`
+- `f1f565d feat: revoke tracked ERC-20 approvals`
 - `70e5c03 docs: checkpoint approval inventory`
 - `21a4093 feat: add tracked approval inventory`
 - `d553b73 fix: track sequential batch receipts`
@@ -248,9 +253,21 @@ Receipt 观察固定在目标链，不依赖钱包后来切到哪条 active chai
 
 Milestone 3 第二批验证证据：新增 2 个纯模块测试文件并扩展组件生命周期测试，共新增 20 项测试；全仓 38 个测试文件、258 项测试通过，TypeScript、ESLint、Diff 检查和 Next.js 16.2.9 生产构建通过。受限环境的首次构建仍只因既有 Google Geist 字体下载失败，联网重跑成功。
 
+标准审计结论不能用一个 `allowance > 0` 模型覆盖所有权限：ERC-721 同时存在单 token `getApproved(tokenId)` 与 owner 全量 `isApprovedForAll(owner, operator)`，而 token ID 枚举不是基础 ERC-721 的必选能力；ERC-1155 标准权限是覆盖 owner 全部 token 类型的 operator bool；ERC-2612 Permit 是 EIP-712 签名，只有被提交后才更新普通 ERC-20 allowance，未提交签名不在链上形成可枚举清单。
+
+Permit2 也必须拆成两类：`AllowanceTransfer` 在 canonical 合约中保存 owner/token/spender 的 uint160 amount、uint48 expiration 和 uint48 nonce，可以读取与 `lockdown`；`SignatureTransfer` 使用一次性签名和 unordered nonce，不建立同类持久 allowance，未泄露/未提交的链下签名无法通过本产品枚举。UI 已明确声明这个覆盖缺口。
+
+Sepolia canonical Permit2 地址 `0x000000000022D473030F116dDEE9F6B43aC78BA3` 已通过项目 RPC 只读核验：runtime code 为 9,152 bytes，code hash 为 `0x96d9f5c3f0fb0423426b7f970186235b7347027f4e5c19c40c412b7d97fc3751`，`allowance(owner, token, spender)` 接口可调用。Registry 固定保存 chain、地址和该 runtime hash；浏览器读取时重新计算 Hash，不匹配、没有 bytecode 或缺少已完成的 RPC 数据都会 fail closed。
+
+Permit2 的有效权限是双层交集：Token 必须先给 Permit2 ERC-20 allowance，Permit2 内部又必须给具体 spender 未过期额度。因此 active 状态的有效上限取两层 allowance 较小值；底层为 0 但内部额度未过期时不能标成“无授权”，而是 dormant，因为以后恢复底层 allowance 后内部授权会重新可用。Token 无限值是 uint256 最大值，Permit2 内部无限值是 uint160 最大值，不能混用。
+
+expiration 使用目标链最新区块 `timestamp` 判断，而不是浏览器本地时间；Permit2 实现只在 `block.timestamp > expiration` 时视为过期，因此相等边界仍按有效处理。界面保留 nonce 与原始两层额度，并说明有效权限额度不等于钱包实际 Token 余额。
+
+Milestone 3 第三批验证证据：新增 3 个测试文件、18 项测试；全仓 41 个测试文件、276 项测试通过，TypeScript、ESLint、Diff 检查和 Next.js 16.2.9 生产构建通过。构建使用项目既有 Google Geist 字体，因此在允许网络下载后完成。
+
 ## 下一步
 
-Milestone 3 第二批单项 revoke 已完成，停在 Review 边界，不自动提交。用户确认后分别提交业务代码与恢复文档。下一批先审计 ERC-721、ERC-1155、Permit 和 Permit2 的不同发现/读取语义并核实真实支持目标；只有 Registry 中存在多个真实可撤销权限时才实现 batch revoke，不能为展示批量功能复制假 target。
+Milestone 3 第三批 Permit2 双层清单已完成，停在 Review 边界，不自动提交。用户确认后分别提交业务代码与恢复文档。下一批基于已验证快照实现 Permit2 `lockdown([{ token, spender }])` 的冻结 Review、模拟、Receipt/恢复和双层重新读取；数组接口先支持真实选中的 target，不为展示批量功能复制假 target，存在多个真实 target 后自然扩展为 batch revoke。
 
 ## 工作约束
 
