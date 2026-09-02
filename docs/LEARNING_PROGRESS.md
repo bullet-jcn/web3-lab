@@ -4,7 +4,9 @@
 
 ## 当前目标
 
-Milestone 2 / Batch C 与 Milestone 3 的支持范围代码实现和自动化退出审计已经完成。按用户决定，两阶段整体学习暂缓但不删除，学习入口和设计证据保留在本文件。Milestone 3 最终收尾批次已完成并停在 Review 边界；下一代码阶段是 Milestone 4 后端与运维。
+Milestone 2 / Batch C 与 Milestone 3 的支持范围代码实现和自动化退出审计已经完成。按用户决定，学习暂缓但不删除。Milestone 4 后端与运维继续代码优先：PostgreSQL/Redis、认证/Watchlist、RPC resilience、可观测性以及依赖/密钥扫描治理已实现；第一至五批代码已提交，下一批进入部署环境与回滚边界。
+
+Milestone 4 对用户属于新的知识领域，已建立独立延后课程 `docs/learning/MILESTONE_4_COURSE.md`。当前优先完成项目；用户下次要求“学习第四阶段”时从该课程第 1 课开始，用具象场景 → 业界边界 → 项目代码 → 小练习的顺序讲解。第四批可观测性已经完成；第五批把已知依赖公告归零并建立 CI dependency/secret gate，远端工作流与 Branch Protection 仍需要推送和 GitHub 配置证据。
 
 ## 已完成
 
@@ -55,32 +57,22 @@ Milestone 2 / Batch C 与 Milestone 3 的支持范围代码实现和自动化退
 - Milestone 3 第四批已完成 Permit2 单项 `lockdown`：从当前双层快照冻结账户、链、Permit2、token、spender、两层额度、expiration、nonce 和状态 Review，以完全相同的单项 tuple 请求先模拟再提交；Hash 返回后才保存，刷新后恢复 Receipt，支持观察重试、replacement、Explorer 证据和成功后的 Permit2 双层重新读取。
 - Milestone 3 第五批已建立确定性 calldata 解码边界：用户显式输入目标合约与 calldata，当前只解释 Sepolia Registry 中 ERC-20 `approve(address,uint256)` 和 canonical Permit2 `lockdown((address,address)[])`，展示成功执行时的权限效果并复用无限授权确定性 finding；未知链、合约、selector、Permit2 tuple、损坏参数、超大 calldata 或超大批次均 fail closed，不交给 AI 猜测。
 - Milestone 3 最终收尾批次已完成 EIP-2612 Permit 与 Permit2 PermitSingle 的严格 EIP-712 解析、domain/整数位宽/digest/账户/链/deadline 校验；calldata 解码器接入同一区块 `eth_call` 与权限前后证据；确定性规则扩展至产品阈值高额度、未知 spender、账户/链不一致和过期 deadline；授权风险用户的继续/取消决定以最小公开 finding code 记录持久化，不保存 AI 文案、原始 calldata/typed data 或签名。
+- Milestone 4 第一批已建立 PostgreSQL migration、带 checksum/advisory lock 的迁移器、七类持久实体 Repository、Redis nonce/session revoke/rate-limit/idempotency 协调边界与本地 Compose 基础设施；数据库用复合外键约束 wallet/user/intent/chain 上下文，Redis key 不暴露原始用户标识。
+- Milestone 4 第二批已把 SIWE nonce、Session 和 Watchlist 接入显式 `postgres` 模式：nonce 原子消费，Session 使用 256-bit opaque token 且数据库只存 hash，logout 同时建立 Redis 快速撤销与 PostgreSQL 持久撤销；Watchlist 按 user/chain 存储并在事务 advisory lock 内执行 20 条容量边界。生产未配置模式会拒绝启动相关路径，故障返回 503 而不静默降级。
+- Milestone 4 第三批已建立四条支持链的 RPC Provider Registry：有效 Alchemy、显式独立 fallback 与 Viem chain public emergency provider 按顺序组成有界 fallback；每个 Provider 5 秒 timeout、零同源 retry、全列表只尝试一轮，确定性 revert 不 fallback。新增脱敏 `/api/health/rpc`、10 秒 single-flight cache，并让 CSP 从 Registry 生成无路径/无 key 的 provider origin。
+- Milestone 4 第四批已建立结构化脱敏 Route 日志、服务端 request ID、OpenTelemetry trace/metric 接入和 Next server error hook；日志类型不接受任意 metadata，不记录异常 message/stack、请求体、Cookie、地址、Hash 或 RPC URL。新增 PostgreSQL/Redis/RPC 聚合就绪检查、版本化告警规则与故障 runbook；真实监控平台接收人和告警送达仍需部署环境证据。
+- Milestone 4 第五批已升级存在公告的 Next.js、WalletConnect、Wagmi、Viem 与构建依赖，并用精确 transitive override 消除上游暂未提升的安全版本；当前完整 npm audit 为零。CI 使用 Node 24、不可变 Action SHA、锁文件安装、生产构建、PR Dependency Review 和完整历史 Gitleaks 扫描；Dependabot、安装脚本精确版本许可和供应链处置文档同步落库。
 
 ## 当前未提交业务文件
 
-当前 Milestone 3 最终收尾批次待 Review 的业务文件：
-
-- `app/page.tsx`
-- `components/token/ApprovalRiskDemo.tsx`
-- `components/token/ApprovalRiskDemo.test.tsx`
-- `components/token/CalldataInspector.tsx`
-- `components/token/CalldataInspector.test.tsx`
-- `components/token/TypedDataInspector.tsx`
-- `components/token/TypedDataInspector.test.tsx`
-- `lib/assetRegistry.ts`
-- `lib/calldataAnalysis.ts`
-- `lib/riskCheck.ts`
-- `lib/riskCheck.test.ts`
-- `lib/riskDecisionStorage.ts`
-- `lib/riskDecisionStorage.test.ts`
-- `lib/typedDataAnalysis.ts`
-- `lib/typedDataAnalysis.test.ts`
-- `docs/LEARNING_PROGRESS.md`
-
-`docs/PRODUCT_SPEC.md` 与 `docs/PRODUCTION_ROADMAP.md` 是此前已有的未跟踪产品文档，不属于当前业务步骤，继续保持未提交。
+Milestone 4 第一至五批业务代码与恢复文档均已提交。`docs/PRODUCT_SPEC.md` 与
+`docs/PRODUCTION_ROADMAP.md` 是此前已有的未跟踪产品文档，不属于本批，继续保持未提交。
 
 ## 最近完成的业务提交
 
+- `495f6b5 feat: add production backend operations`
+- `6c4fb1c docs: close milestone three code phase`
+- `34186ed feat: complete wallet safety evidence`
 - `dd9d64f docs: checkpoint Permit2 lockdown`
 - `5d64ee9 feat: revoke Permit2 allowances`
 - `9f8f874 docs: checkpoint Permit2 approval inventory`
@@ -315,13 +307,55 @@ Milestone 3 支持范围退出结论：ERC-20 与 Permit2 的库存、单项撤�
 
 Milestone 3 最终自动化证据：全仓 48 个测试文件、328 项测试通过，TypeScript、ESLint、Diff 检查和 Next.js 16.2.9 生产构建通过。生产构建第一次因既有 Google Geist 字体网络请求失败，同一代码联网重试成功；没有伪造真实钱包签名、真实 Permit 提交或通用 trace 模拟证据。
 
+Milestone 4 的第一批先建立数据边界而不直接改 Route：PostgreSQL 是用户、wallet ownership、session、watchlist、交易意图/Receipt 和风险报告的可靠事实源；Redis 只保存带 TTL 的 nonce、撤销快速路径、限流计数与在途幂等 claim。Redis 丢失不能抹除交易或身份事实，PostgreSQL 暂时不可用也不能降级成“默认允许”。
+
+Session 表只保存 64 位 SHA-256 token hash；风险报告只接受 finding code、严重级别和用户决定。Schema 用复合外键保证 session/intent/risk report 中的 wallet 确实属于同一个 user，Receipt 的 chain/hash 确实对应同一 intent；用户级 idempotency key 与 request fingerprint 同时防止“同 key 不同请求”被误当成安全重放。
+
+Repository 使用 `pg` 参数化查询与有界连接池，创建钱包身份使用 transaction-scoped advisory lock，Receipt 与 intent 终态在同一数据库事务更新。迁移器对每个历史 SQL 保存 checksum，并用全局 advisory lock 防止并发部署重复执行；历史迁移被修改时 fail closed。
+
+Redis Coordinator 的所有外部标识先哈希再进入 key；SIWE nonce 通过 `GETDEL` 只能消费一次，限流通过单个 Lua 脚本完成 `INCR` 与首次 `EXPIRE`，幂等 claim 明确区分首次取得、相同请求重放和同 key 冲突。Redis session revoke 是加速检查，不取代 PostgreSQL 的持久撤销时间。
+
+Milestone 4 第一批自动化证据：新增 6 个测试文件，其中 21 项本地定向测试通过、2 项真实服务集成测试因本机无运行时按显式环境开关跳过；全仓 54 个测试文件、349 项通过、2 项跳过，TypeScript、ESLint、Diff 检查和 Next.js 16.2.9 生产构建通过。构建第一次只因受限网络无法下载项目既有 Google Geist 字体失败，同一代码联网重跑成功。CI 已配置 disposable PostgreSQL/Redis、真实 migration 和集成测试，但在 workflow 实际通过前不伪造该证据。联网 production dependency audit 当前报告 10 项既有依赖公告（1 moderate、9 high），漏洞链未指向本批新增的 `pg`/`redis`；不使用 `npm audit fix --force` 跨版本破坏 Next.js，保留给 Milestone 4 CI/依赖治理批次逐项升级验证。
+
+Milestone 4 第二批使用显式 cutover，而不是数据库失败后自动退回 Cookie：生产必须设置 `BACKEND_STORAGE_MODE=postgres`，`legacy-cookie` 只用于人工紧急回滚。两种模式的 Session cookie 格式不同，切换后用户可能需要重新登录；数据库中的 Watchlist 不会丢失，但 legacy 路径在恢复 postgres 模式前无法展示它。这个取舍避免后端故障时悄悄绕过撤销、nonce 和服务端事实边界。
+
+后端登录生命周期固定为：Redis 签发一次性 nonce → SIWE 确定性验证 → 验证成功后 `GETDEL` 原子消费 → 创建/复用 wallet identity → 生成 32-byte 随机 bearer token → PostgreSQL 只保存 SHA-256 hash 与 user/wallet/chain/expiry → Cookie 只保存原 token。并发重放即使都通过签名校验，也只有一个请求能消费 nonce 并创建 Session。
+
+Session 查询先验证 opaque token 格式和 Redis 撤销标记，再读取 PostgreSQL 中未撤销、未过期且 user active 的记录；API 只返回 address/chainId，不向浏览器暴露内部 UUID。Logout 先写 Redis 撤销快速路径，再写数据库持久撤销，完成后才删除 Cookie；持久撤销失败返回 503 并保留 Cookie，避免 UI 宣称已经安全登出。
+
+Watchlist 在 postgres 模式按 `userId + session.chainId` 隔离。添加操作使用 transaction-scoped advisory lock 串行化同一用户/链的 duplicate、count 和 insert，避免两个并发请求都在 19 条时各自通过检查导致越界。数据库/Redis 故障明确返回 503；前端 Session、Watchlist、SIWE nonce 和 Logout hooks 已检查非 2xx，不会把 `{ error }` 响应误当成功数据。
+
+Milestone 4 第二批自动化证据：全仓 58 个测试文件、374 项通过，另有 1 个文件中的 2 项真实服务集成测试按本机缺少 runtime 显式跳过；TypeScript、ESLint、Diff 检查和 Next.js 16.2.9 生产构建通过。构建第一次仍只因受限网络无法下载既有 Google Geist 字体失败，同一代码联网重跑成功。新增测试覆盖存储模式、nonce collision/单次消费、Session token hash/expiry/revoke、认证 Route 重放/公开响应/logout 失败、PostgreSQL Watchlist scope/capacity/503 和前端错误边界。
+
+Milestone 4 第三批不把 fallback 等同于无限重试：单个 Provider 不原地 retry，网络/限流失败才按固定列表尝试下一 Provider，所有 Provider 耗尽后立即返回失败；合约 execution revert 属于确定性业务结果，必须直接返回，不能换节点试图“洗掉”revert。Receipt polling 只观察已有 Hash，钱包签名与提交仍由 connector 发起，不进入公共 RPC 自动重发路径。
+
+缺失或占位 Alchemy key 不再生成包含 `undefined` 的 URL。生产可为四条链分别配置独立 fallback；未配置时 Viem chain public RPC 只是应急可用性，不被宣称为商业容量。由于这些读取同时运行在浏览器，CSP `connect-src` 从同一 Registry 提取 provider origin，去掉路径和 API key，避免“transport 会 fallback、浏览器 CSP 却拦截”的假容灾。
+
+`/api/health/rpc` 并行执行 `eth_blockNumber` 探针，严格验证 HTTP、4 KiB 响应上限、JSON-RPC envelope 与 hex block number；只返回 provider ID/name、latency、status 与十进制 block number，不返回 URL、上游错误或凭据。写链全部 Provider 不可用时 HTTP 503；部分 Provider 失效但仍可服务时返回 200 + `degraded`。10 秒进程缓存和 single-flight 防止监控请求自身放大 RPC 流量。
+
+Milestone 4 第三批自动化证据：全仓 61 个测试文件、392 项通过，另有 1 个文件中的 2 项真实 PostgreSQL/Redis 服务集成测试按本机缺少 runtime 显式跳过；TypeScript、ESLint、Diff 检查和 Next.js 16.2.9 生产构建通过，构建首次仍仅因受限网络无法下载既有 Google Geist 字体失败，同一代码联网重跑成功。新增 18 项测试覆盖 Provider 顺序与配置校验、CSP 脱敏 origin、primary→fallback、预算耗尽、revert 不 fallback、探针响应/超时/脱敏、critical chain 状态和 health Route HTTP 映射；尚未声称真实生产 Provider 容量、SLO 或告警送达证据。
+
+Milestone 4 第四批采用“固定字段而非事后正则脱敏”：Route logger 只接受 event、固定 route/method、status、duration、request/trace ID 与有限 dependency/error type，不提供任意 metadata 容器，因此调用方不能顺手把 header、Cookie、请求体、钱包地址、Hash、calldata、异常 message/stack 或上游响应塞进运营日志。每个 Route 响应带服务端生成的 `X-Request-Id` 和 `Server-Timing`；相同低基数字段同时写入 OpenTelemetry span/counter/histogram。
+
+Next.js 16 根级 `instrumentation.ts` 使用官方 `@vercel/otel` 注册 framework traces，并用 `onRequestError` 记录未捕获 server error 的安全类型与 digest。通用 outbound fetch instrumentation 被显式关闭：当前 RPC API key 可能位于 URL path，自动采集完整 URL 会把公开客户端标识进一步扩散到监控系统；RPC/Gemini 降级改由明确的安全事件记录。配置 OTLP base/metrics endpoint 时才安装真正的 HTTP MetricReader 并导出 request counter/duration histogram；未配置时告警从 JSON 完成日志派生，不把 no-op Metrics API 冒充成数据源。OTLP endpoint/header 只能使用服务端环境变量，不能加 `NEXT_PUBLIC_`。
+
+`/api/health/ready` 在 postgres 模式并行检查数据库、Redis 与关键 RPC，在显式 `legacy-cookie` 回滚模式把前两者标成 `not_required`；配置错误或任一必要依赖失效返回 503，响应不含连接串、URL 或异常正文。`ops/alerts/rules.json` 固化 availability、telemetry absence、RPC degraded/unhealthy、5xx rate、p95 latency 和 AI explanation degrade 的窗口/最少样本/severity/runbook。规则进入仓库不等于外部接收人已收到告警，部署前仍必须配置监控平台并保存一次真实送达测试证据。
+
+Milestone 4 第四批自动化证据：全仓 66 个测试文件、406 项通过，另有 1 个文件中的 2 项真实 PostgreSQL/Redis 集成测试按本机缺少 runtime 显式跳过；TypeScript、ESLint、Diff 检查和 Next.js 16.2.9 生产构建通过。构建首次仅因受限网络无法下载既有 Google Geist 字体失败，同一代码联网重跑成功。生产依赖 audit 当前明确报告 11 个受影响依赖节点（1 moderate、10 high），其中直接依赖 Next.js 与 Viem 均已有升级方向；新增 OpenTelemetry 顶层包未出现在该报告中。漏洞尚未治理，下一批必须逐项升级/验证并建立 CI gate，不能把本批构建通过误写成依赖安全通过。
+
+Milestone 4 第五批没有用 `npm audit fix --force` 或降低阈值掩盖告警。Next.js 与配套 ESLint config 固定到已包含安全修复的 16.3.4；WalletConnect/Wagmi/Viem 和 Tailwind 构建链同步升级。Reown/Coinbase 的暂时性传递依赖缺口通过精确 `@base-org/account@2.5.10`、`@coinbase/cdp-sdk@1.52.0` 与 `axios@1.20.0` override 收口：CDP 1.53+ 当前会让未使用 x402 的应用 bundle 仍解析其 optional peer imports，故先固定到可构建边界。后续升级必须优先重测并移除 override。五个安装脚本逐项读取后按包和版本许可，新版本默认不得继承授权。
+
+CI 与 Security 分离：CI 证明锁文件安装、migration、lint、类型、测试和 production build；Security 证明 npm 已知公告阈值、PR 新增依赖风险和 Git 历史 secret pattern。所有第三方 Action 使用完整 commit SHA，pull request 检查不使用 `pull_request_target`，避免执行 fork 代码时扩大 secrets 权限。工作流文件落库不等于远端已经通过，也不等于 Branch Protection 已经要求这些检查。
+
+Milestone 4 第五批最终自动化证据：全仓 67 个测试文件、409 项通过；另有 1 个文件中的 2 项真实 PostgreSQL/Redis 集成测试按本机缺少 runtime 显式跳过。TypeScript、ESLint、YAML 解析、Diff 检查和两档联网 npm audit 通过，生产与完整依赖均为 0 个已知公告。Next.js 16.3.4 的 Webpack production build 完成全部编译、类型、页面生成和 trace；当前受控执行环境禁止 Turbopack 的 PostCSS 子进程绑定本地端口，因此默认 Turbopack build 仍须由 GitHub Runner 证明。构建保留 Viem/Wagmi 未启用可选 connector 的静态解析 warning，没有为消除 warning 安装未使用 SDK。
+
 ## 下一步
 
-Milestone 3 支持范围代码已完成，最终收尾批次停在 Review 边界，不自动提交。用户确认后分别提交业务代码与恢复文档。下一步进入 Milestone 4：先设计 PostgreSQL/Redis 边界与本地开发基础设施，把 revocable session、风险报告、交易意图和幂等/限流从浏览器或进程内状态迁移到可运营后端；Milestone 2/3 的集中学习继续保留到用户要求时再进行。
+Milestone 4 第一至五批已完成验证和代码提交 `495f6b5`。下一代码批次进入环境/回滚；之后继续备份与数据政策。GitHub workflow、Gitleaks 和真实服务集成测试仍须推送后由远端 Runner 产生证据，不在本地伪造。Milestone 2/3/4 的集中学习继续保留到用户要求时再进行。
 
 ## 工作约束
 
 - 每轮只处理一个明确的小步骤。
 - 修改后运行相关测试、TypeScript、ESLint 和 Diff 检查。
-- 不自动 Commit；先让用户 Review 和理解。
+- 默认先让用户 Review；用户明确要求提交的批次在完整验证通过后提交，不自动推送。
 - 每轮结束更新本文件。
