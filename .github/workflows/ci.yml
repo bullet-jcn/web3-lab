@@ -5,18 +5,56 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: web3_lab_test
+          POSTGRES_USER: web3_lab
+          POSTGRES_PASSWORD: ci_only_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U web3_lab -d web3_lab_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      redis:
+        image: redis:7.4-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://web3_lab:ci_only_password@127.0.0.1:5432/web3_lab_test
+      REDIS_URL: redis://127.0.0.1:6379
+      BACKEND_STORAGE_MODE: postgres
+      RUN_BACKEND_INTEGRATION: "true"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: 20.x
+          node-version: 24.x
           cache: npm
 
       - run: npm ci
+      - run: npm run db:migrate
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run test
+      - run: npm run build

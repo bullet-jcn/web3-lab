@@ -1,27 +1,27 @@
-import { createPublicClient, http } from 'viem'
+import { createPublicClient } from 'viem'
 import { sepolia, baseSepolia, mainnet, base } from 'viem/chains'
-import { rpcUrls } from './rpc'
+import { createRpcTransport, getRpcProviders } from './rpc'
 
 // Ethereum Sepolia
 export const sepoliaClient = createPublicClient({
   chain: sepolia,
-  transport: http(rpcUrls.sepolia),
+  transport: createRpcTransport(getRpcProviders(sepolia.id)),
 })
 
 // Base Sepolia
 export const baseSepoliaClient = createPublicClient({
   chain: baseSepolia,
-  transport: http(rpcUrls.baseSepolia),
+  transport: createRpcTransport(getRpcProviders(baseSepolia.id)),
 })
 
 // Ethereum Mainnet
 export const mainnetClient = createPublicClient({
   chain: mainnet,
-  transport: http(rpcUrls.mainnet),
+  transport: createRpcTransport(getRpcProviders(mainnet.id)),
 })
 
 // Base Mainnet
 export const baseClient = createPublicClient({
   chain: base,
-  transport: http(rpcUrls.base),
+  transport: createRpcTransport(getRpcProviders(base.id)),
 })

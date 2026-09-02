@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "rules": [
+    {
+      "id": "service-readiness-unhealthy",
+      "severity": "critical",
+      "signal": "probe:/api/health/ready:status=unhealthy",
+      "windowSeconds": 180,
+      "minimumEvents": 3,
+      "condition": "count>=3",
+      "runbook": "docs/OBSERVABILITY.md#service-readiness-unhealthy"
+    },
+    {
+      "id": "telemetry-heartbeat-missing",
+      "severity": "critical",
+      "signal": "probe:/api/health/ready:missing",
+      "windowSeconds": 300,
+      "minimumEvents": 1,
+      "condition": "absence>=300s",
+      "runbook": "docs/OBSERVABILITY.md#telemetry-heartbeat-missing"
+    },
+    {
+      "id": "rpc-critical-chain-unhealthy",
+      "severity": "critical",
+      "signal": "log:dependency.degraded:dependency=rpc,outcome=unhealthy",
+      "windowSeconds": 120,
+      "minimumEvents": 2,
+      "condition": "count>=2",
+      "runbook": "docs/OBSERVABILITY.md#rpc-critical-chain-unhealthy"
+    },
+    {
+      "id": "rpc-provider-degraded",
+      "severity": "warning",
+      "signal": "log:dependency.degraded:dependency=rpc,outcome=degraded",
+      "windowSeconds": 600,
+      "minimumEvents": 3,
+      "condition": "count>=3",
+      "runbook": "docs/OBSERVABILITY.md#rpc-provider-degraded"
+    },
+    {
+      "id": "http-server-error-rate",
+      "severity": "critical",
+      "signal": "log:http.request.completed:status_code>=500",
+      "windowSeconds": 300,
+      "minimumEvents": 20,
+      "condition": "ratio>0.02",
+      "runbook": "docs/OBSERVABILITY.md#http-server-error-rate"
+    },
+    {
+      "id": "http-p95-latency",
+      "severity": "warning",
+      "signal": "log:http.request.completed:duration_ms",
+      "windowSeconds": 600,
+      "minimumEvents": 20,
+      "condition": "p95>2000ms",
+      "runbook": "docs/OBSERVABILITY.md#http-p95-latency"
+    },
+    {
+      "id": "risk-explanation-degraded",
+      "severity": "warning",
+      "signal": "log:dependency.degraded:dependency=gemini",
+      "windowSeconds": 600,
+      "minimumEvents": 5,
+      "condition": "count>=5",
+      "runbook": "docs/OBSERVABILITY.md#risk-explanation-degraded"
+    }
+  ]
+}

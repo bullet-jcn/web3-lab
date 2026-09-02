@@ -5,10 +5,15 @@ import { Address } from "viem"
 export function useWatchlist() {
     const queryClient = useQueryClient()
     const session = useSession()
+    const watchlistKey = ['watchlist', session.data?.address, session.data?.chainId] as const
     const watchlistQuery = useQuery({
-        queryKey: ['watchlist'],
+        queryKey: watchlistKey,
         queryFn: async () => {
             const res = await fetch('/api/watchlist', { method: 'GET' })
+            if (!res.ok) {
+                const body = await res.json().catch(() => null)
+                throw new Error(body?.error ?? '关注列表暂时不可用')
+            }
             return res.json()
         },
         enabled: !!session.data
@@ -27,7 +32,7 @@ export function useWatchlist() {
             return res.json()
         },
         onSuccess: (data) => {
-            queryClient.setQueryData(['watchlist'], data)
+            queryClient.setQueryData(watchlistKey, data)
         },
     })
 
@@ -45,12 +50,12 @@ export function useWatchlist() {
             return res.json()
         },
         onSuccess: (data) => {
-            queryClient.setQueryData(['watchlist'], data)
+            queryClient.setQueryData(watchlistKey, data)
         },
     })
 
     return {
-        addresses: watchlistQuery.data?.addresses ?? [],
+        addresses: session.data ? (watchlistQuery.data?.addresses ?? []) : [],
         isLoading: watchlistQuery.isLoading,
         addAddress: addMutation.mutate,
         isAdding: addMutation.isPending,

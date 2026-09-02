@@ -14,6 +14,10 @@ export function useSiwe() {
       }
 
       const nonceRes = await fetch('/api/auth/nonce')
+      if (!nonceRes.ok) {
+        const body = await nonceRes.json().catch(() => null)
+        throw new Error(body?.error ?? '登录服务暂时不可用')
+      }
       const { nonce } = await nonceRes.json()
 
       const message = createSiweMessage({
@@ -42,6 +46,7 @@ export function useSiwe() {
       return verifyRes.json()
     },
     onSuccess: (data) => {
+      queryClient.removeQueries({ queryKey: ['watchlist'] })
       queryClient.setQueryData(['session'], data)
     },
   })

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import nextConfig, { securityHeaders } from './next.config'
+import { getRpcConnectSources } from './lib/rpc'
 
 describe('security headers', () => {
   it('applies the security baseline to every route', async () => {
@@ -12,5 +13,13 @@ describe('security headers', () => {
       'X-Content-Type-Options': 'nosniff',
       'X-Frame-Options': 'DENY',
     })
+    const csp = Object.fromEntries(securityHeaders.map(({ key, value }) => [key, value]))[
+      'Content-Security-Policy'
+    ]
+    for (const source of getRpcConnectSources()) {
+      expect(csp).toContain(source)
+    }
+    expect(csp).not.toContain('/v2/')
+    expect(csp).not.toContain('undefined')
   })
 })

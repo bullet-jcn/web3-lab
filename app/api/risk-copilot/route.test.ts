@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { MAX_RISK_REQUEST_BYTES, POST } from './route'
+import { MAX_RISK_REQUEST_BYTES } from '@/lib/server/riskCopilotPolicy'
+import { POST } from './route'
 
 const ACCOUNT = '0x0000000000000000000000000000000000000001'
 const finding = {

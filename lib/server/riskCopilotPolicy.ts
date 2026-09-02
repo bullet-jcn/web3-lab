@@ -1,0 +1,1 @@
+export const MAX_RISK_REQUEST_BYTES = 16 * 1024

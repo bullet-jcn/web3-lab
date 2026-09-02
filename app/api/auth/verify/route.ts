@@ -1,12 +1,15 @@
 import { isHex } from 'viem'
 import { createSession, SESSION_COOKIE_NAME, SESSION_TTL_SECONDS } from '@/lib/auth/session'
-import { NONCE_COOKIE_NAME, verifySignIn } from '@/lib/auth/siwe'
+import { NONCE_COOKIE_NAME, verifySignIn, verifySignInWithNonce } from '@/lib/auth/siwe'
 import { enforceSameOrigin, getExpectedRequestOrigin } from '@/lib/auth/origin'
 import { readJsonBody } from '@/lib/http/json'
 import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
+import { getBackendNonceService, getBackendSessionService } from '@/lib/server/backendServices'
+import { readBackendStorageMode } from '@/lib/server/storageMode'
+import { observeRoute } from '@/lib/server/observability/route'
 
-export async function POST(request: Request): Promise<Response> {
+async function verifySession(request: Request): Promise<Response> {
   const originError = enforceSameOrigin(request)
   if (originError) return originError
 
@@ -21,6 +24,7 @@ export async function POST(request: Request): Promise<Response> {
     return NextResponse.json({ error: 'message/signature 缺失或格式不对' }, { status: 400 })
   }
 
+  const mode = readBackendStorageMode()
   try {
     const expectedOrigin = getExpectedRequestOrigin(request)
     if (!expectedOrigin) {
@@ -30,12 +34,25 @@ export async function POST(request: Request): Promise<Response> {
     const cookieStore = await cookies()
     const nonceCookieValue = cookieStore.get(NONCE_COOKIE_NAME)?.value
 
-    const result = await verifySignIn(message, signature, nonceCookieValue, expectedOrigin)
+    const result = mode === 'postgres'
+      ? await verifySignInWithNonce(message, signature, nonceCookieValue, expectedOrigin)
+      : await verifySignIn(message, signature, nonceCookieValue, expectedOrigin)
     if (!result.ok) {
       return NextResponse.json({ error: result.reason }, { status: 401 })
     }
 
-    const sessionCookie = createSession(result.address, result.chainId)
+    let sessionCookie: string
+    if (mode === 'postgres') {
+      const nonceConsumed = await (await getBackendNonceService()).consume(nonceCookieValue!)
+      if (!nonceConsumed) {
+        return NextResponse.json({ error: 'nonce 缺失或已过期' }, { status: 401 })
+      }
+      sessionCookie = (
+        await (await getBackendSessionService()).create(result.address, result.chainId)
+      ).token
+    } else {
+      sessionCookie = createSession(result.address, result.chainId)
+    }
     cookieStore.set(SESSION_COOKIE_NAME, sessionCookie, {
       httpOnly: true,
       sameSite: 'lax',
@@ -47,6 +64,13 @@ export async function POST(request: Request): Promise<Response> {
 
     return NextResponse.json({ address: result.address, chainId: result.chainId })
   } catch {
-    return NextResponse.json({ error: '登录验证失败' }, { status: 401 })
+    return mode === 'postgres'
+      ? NextResponse.json({ error: '登录服务暂时不可用' }, { status: 503 })
+      : NextResponse.json({ error: '登录验证失败' }, { status: 401 })
   }
 }
+
+export const POST = observeRoute(
+  { route: '/api/auth/verify', method: 'POST' },
+  verifySession,
+)

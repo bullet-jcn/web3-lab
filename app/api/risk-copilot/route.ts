@@ -3,9 +3,11 @@ import { enforceSameOrigin } from '@/lib/auth/origin'
 import { formatDeterministicRiskWarning, parseRiskFindingsRequest } from '@/lib/riskCheck'
 import { GoogleGenAI, type GenerateContentResponse } from '@google/genai'
 import { NextResponse } from 'next/server'
+import { emitStructuredLog } from '@/lib/server/observability/logger'
+import { observeRoute } from '@/lib/server/observability/route'
+import { MAX_RISK_REQUEST_BYTES } from '@/lib/server/riskCopilotPolicy'
 
 const NO_RISK_MESSAGE = '没有检测到已知的风险模式，但这不代表绝对安全，请仍然核对交易细节后再确认。'
-export const MAX_RISK_REQUEST_BYTES = 16 * 1024
 
 const SYSTEM_PROMPT = `你是一个 web3 钱包的安全助手。你会收到一份 JSON 数组，是已经通过确定性代码逻辑分析出来的风险检测结果（severity/code/detail 字段），这些结果本身不是你需要判断或验证的对象。
 
@@ -16,11 +18,16 @@ const SYSTEM_PROMPT = `你是一个 web3 钱包的安全助手。你会收到一
 2. 不要有寒暄、不要复述"我收到了这些数据"这类话，直接给结论。
 3. 总共不超过 3 句话。`
 
-export async function POST(request: Request): Promise<Response> {
+async function explainRisk(request: Request): Promise<Response> {
   const originError = enforceSameOrigin(request)
   if (originError) return originError
 
-  const session = await getSession()
+  let session
+  try {
+    session = await getSession()
+  } catch {
+    return NextResponse.json({ error: '认证服务暂时不可用' }, { status: 503 })
+  }
   if (!session) {
     return NextResponse.json({ error: '未登录' }, { status: 401 })
   }
@@ -82,7 +89,13 @@ export async function POST(request: Request): Promise<Response> {
       config: { systemInstruction: SYSTEM_PROMPT },
     })
   } catch (err) {
-    console.error('risk-copilot: Gemini API call failed', err)
+    emitStructuredLog({
+      level: 'warn',
+      event: 'dependency.degraded',
+      outcome: 'degraded',
+      dependency: 'gemini',
+      error: err,
+    })
     return NextResponse.json({
       warning: `AI 解释服务暂时不可用。${formatDeterministicRiskWarning(findings)}`,
       degraded: true,
@@ -99,3 +112,8 @@ export async function POST(request: Request): Promise<Response> {
 
   return NextResponse.json({ warning, degraded: false })
 }
+
+export const POST = observeRoute(
+  { route: '/api/risk-copilot', method: 'POST' },
+  explainRisk,
+)

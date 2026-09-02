@@ -7,11 +7,13 @@ export function useLogout() {
     mutationFn: async () => {
       const res = await fetch('/api/auth/logout', { method: 'POST' })
       if (!res.ok) {
-        throw new Error('登出失败')
+        const body = await res.json().catch(() => null)
+        throw new Error(body?.error ?? '登出失败')
       }
     },
     onSuccess: () => {
       queryClient.setQueryData(['session'], null)
+      queryClient.removeQueries({ queryKey: ['watchlist'] })
     },
   })
 }
