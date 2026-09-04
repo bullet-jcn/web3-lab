@@ -4,6 +4,7 @@ import { Pool, type PoolClient } from 'pg'
 import { describe, expect, it } from 'vitest'
 import type { Address } from 'viem'
 import type { QueryExecutor, TransactionRunner } from './db/client'
+import { PostgresDataLifecycleRepository } from './dataLifecycle'
 import {
   PostgresIdentityRepository,
   PostgresRiskReportRepository,
@@ -43,6 +44,7 @@ describe.runIf(integrationEnabled)('backend service integration', () => {
     const watchlistRepository = new PostgresWatchlistRepository(pool, transactions)
     const transactionRepository = new PostgresTransactionRepository(pool, transactions)
     const riskRepository = new PostgresRiskReportRepository(pool)
+    const dataLifecycleRepository = new PostgresDataLifecycleRepository(pool, transactions)
     const owner = `0x${randomBytes(20).toString('hex')}` as Address
     const watched = `0x${'1'.repeat(40)}` as Address
     const transactionHash = `0x${'2'.repeat(64)}` as const
@@ -116,6 +118,26 @@ describe.runIf(integrationEnabled)('backend service integration', () => {
       })
       const report = await pool.query('SELECT finding_codes FROM risk_reports WHERE id = $1', [reportId])
       expect(report.rows[0].finding_codes).toEqual(['UNRECOGNIZED_SPENDER'])
+
+      await expect(dataLifecycleRepository.deleteUserData(identity.userId)).resolves.toBe(true)
+      const deletedRows = await pool.query(
+        `SELECT
+           (SELECT count(*)::int FROM users WHERE id = $1) AS users,
+           (SELECT count(*)::int FROM wallets WHERE user_id = $1) AS wallets,
+           (SELECT count(*)::int FROM sessions WHERE user_id = $1) AS sessions,
+           (SELECT count(*)::int FROM watchlist_entries WHERE user_id = $1) AS watchlist_entries,
+           (SELECT count(*)::int FROM transaction_intents WHERE user_id = $1) AS transaction_intents,
+           (SELECT count(*)::int FROM risk_reports WHERE user_id = $1) AS risk_reports`,
+        [identity.userId],
+      )
+      expect(deletedRows.rows[0]).toEqual({
+        users: 0,
+        wallets: 0,
+        sessions: 0,
+        watchlist_entries: 0,
+        transaction_intents: 0,
+        risk_reports: 0,
+      })
     } finally {
       await pool.end()
     }

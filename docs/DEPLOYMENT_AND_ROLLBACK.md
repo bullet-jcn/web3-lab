@@ -24,6 +24,7 @@ The following values are mandatory for every deployed release:
 - `NEXT_DEPLOYMENT_ID`: exactly the same SHA, enabling Next.js rolling-version skew protection.
 - `APP_ORIGIN`: the environment's exact HTTPS origin, used by Origin and SIWE validation.
 - `BACKEND_STORAGE_MODE=postgres` for a normal release.
+- `NEXT_PUBLIC_OPERATOR_NAME` and `NEXT_PUBLIC_SUPPORT_EMAIL` for accountable public contact.
 - a base64 `AUTH_COOKIE_SECRET` containing at least 32 random bytes.
 - PostgreSQL, Redis, Alchemy, WalletConnect and observability configuration.
 - staging and production independent fallback RPC URLs for every supported chain.
@@ -50,9 +51,10 @@ the target environment's public configuration into an image tagged by `RELEASE_I
 digest, and promote or roll back that digest. Never rebuild an old Git revision and call the result
 the same release.
 
-The image contains `scripts/migrate.mjs` and immutable migration files, but application startup does
-not run migrations. A single protected release job applies migrations before traffic promotion;
-multiple application replicas must not each mutate the schema while starting.
+The image contains the migration, retention and backup-evidence commands plus immutable migration
+files, but application startup does not run operational jobs. A single protected release job applies
+migrations before traffic promotion; a separate protected schedule previews and then applies data
+retention. Application replicas must not each mutate the schema or run retention while starting.
 
 Use different probes for different decisions:
 
@@ -98,7 +100,8 @@ trigger wallet transaction resubmission.
 Migrations are forward-only. Use expand/contract changes so the previous and new application can run
 against the expanded schema during rollout. Do not automatically execute a destructive down migration.
 If a schema defect escapes, stop writes where necessary and ship a new corrective migration after
-backup/restore evidence has been checked.
+backup/restore evidence has been checked. The required restore drill and evidence format are defined
+in `docs/BACKUP_AND_RESTORE.md`.
 
 ### Emergency storage rollback
 

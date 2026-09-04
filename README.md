@@ -18,6 +18,8 @@ A production-oriented Next.js + wagmi/viem wallet companion: Sign-In with Ethere
   ERC20 / 原生 ETH 转账——校验地址、ENS、地址簿与剪贴板输入，按真实 decimals 处理金额，检查余额和 Gas；钱包前冻结精确 Review 快照，刷新后继续追踪回执/替换交易并提供区块浏览器证据。
 - **AI security copilot — pre-signature risk detection** — a deterministic, unit-tested function flags known-dangerous patterns (currently: unlimited ERC20 `approve`); an LLM only phrases the already-computed finding into a plain-language warning, never decides what's risky. Any flagged action requires an explicit "I understand the risk, proceed" confirmation before it's ever signed.
   AI 安全副驾驶——签名前风险检测——确定性、有单测覆盖的函数检测已知风险模式(目前:无限额度 ERC20 `approve`);LLM 只负责把已经算出来的结果转述成人话警告,不负责判断风险本身。任何被标记的操作都需要用户显式点"我已了解风险,继续"才会真正发起签名。
+- **Data lifecycle and public operating boundaries** — same-origin authenticated account deletion, bounded retention with preview/apply confirmation, machine-checked restore-drill evidence, release-gated operator contact, and public privacy/terms/risk/support pages.
+  数据生命周期与公开运营边界——同源且已认证的账户数据删除、带预览和环境确认的保留清理、机器校验的恢复演练证据、发布门禁中的运营联系人，以及公开的隐私/条款/风险/支持页面。
 
 ## Tech stack 技术栈
 

@@ -146,6 +146,11 @@ Cookie、请求体、签名、calldata、RPC URL 与异常 message/stack 都不�
 - `.github/workflows/security.yml`
 - `.github/dependabot.yml`
 - `docs/DEPENDENCY_SECURITY.md`
+- `migrations/0002_data_lifecycle.sql`
+- `lib/server/dataLifecycle.ts`
+- `app/api/account/route.ts`
+- `docs/BACKUP_AND_RESTORE.md`
+- `docs/DATA_AND_SUPPORT_OPERATIONS.md`
 
 ## 当前代码进度快照
 
@@ -170,9 +175,16 @@ liveness/readiness 分离、release-aware 日志和 provider-neutral 发布/回�
 真实云环境证据；GitHub Environment 审批、DNS/TLS、镜像 registry、告警送达与真实 rollback drill
 仍必须在外部环境完成。
 
-尚未开始：备份恢复演练与数据政策。当前已经定义 forward-only expand/contract migration 和前一
-不可变镜像 digest 的应用回滚，但尚未证明数据库备份可恢复，也尚未建立保留/删除、隐私/条款、
-风险披露和支持流程。
+已实现：30/365 天保留边界、只输出聚合数量的预览、带环境确认和 advisory lock 的删除任务、
+已认证用户的服务数据级联删除、本浏览器应用数据清理，以及公开隐私/条款/风险/支持页面。删除
+不会伪装成能够抹除公开区块链记录，也不会清除钱包 Provider 自己的存储。
+
+已实现：PostgreSQL 备份/恢复 runbook、15 分钟 RPO、4 小时 RTO、隔离 Staging 恢复规则和严格的
+恢复证据解析器。它能验证记录结构，但仓库仍不会宣称云数据库已经启用 PITR 或真实 restore drill
+已经通过；这两项必须由部署平台产生外部证据。
+
+Milestone 4 本地代码阶段已完成。课程仍按用户要求保留，等用户说“学习第四阶段”时再从第 1 课
+系统学习，不因为代码完成就假装知识已经学完。
 
 ## 学完后的验收问题
 

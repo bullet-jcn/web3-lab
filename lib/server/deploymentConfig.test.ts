@@ -16,6 +16,8 @@ function deployedEnvironment(overrides: Record<string, string | undefined> = {})
     BACKEND_STORAGE_MODE: 'postgres',
     NEXT_PUBLIC_ALCHEMY_API_KEY: 'alchemy-public-identifier',
     NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: 'walletconnect-public-identifier',
+    NEXT_PUBLIC_OPERATOR_NAME: 'Sentinel Labs',
+    NEXT_PUBLIC_SUPPORT_EMAIL: 'support@example.com',
     NEXT_PUBLIC_ETHEREUM_SEPOLIA_RPC_FALLBACK_URL: 'https://rpc-1.example.com/key',
     NEXT_PUBLIC_ETHEREUM_MAINNET_RPC_FALLBACK_URL: 'https://rpc-2.example.com/key',
     NEXT_PUBLIC_BASE_SEPOLIA_RPC_FALLBACK_URL: 'https://rpc-3.example.com/key',
@@ -91,5 +93,11 @@ describe('release preflight', () => {
     expect(() => assertReleasePreflight(deployedEnvironment({
       OBSERVABILITY_DELIVERY: undefined,
     }))).toThrow('OBSERVABILITY_DELIVERY must be platform or otlp')
+  })
+
+  it('requires a real operator and support contact', () => {
+    expect(() => assertReleasePreflight(deployedEnvironment({
+      NEXT_PUBLIC_SUPPORT_EMAIL: undefined,
+    }))).toThrow('NEXT_PUBLIC_SUPPORT_EMAIL must be configured')
   })
 })

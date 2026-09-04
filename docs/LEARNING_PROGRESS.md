@@ -4,9 +4,9 @@
 
 ## 当前目标
 
-Milestone 2 / Batch C 与 Milestone 3 的支持范围代码实现和自动化退出审计已经完成。按用户决定，学习暂缓但不删除。Milestone 4 后端与运维继续代码优先：PostgreSQL/Redis、认证/Watchlist、RPC resilience、可观测性、依赖/密钥扫描治理以及部署环境/回滚边界已实现；第一至五批已提交，第六批代码已完成验证，下一批进入备份与数据政策。
+Milestone 2 / Batch C、Milestone 3 和 Milestone 4 的本地代码阶段已经完成。按用户决定，学习暂缓但不删除。Milestone 4 已覆盖 PostgreSQL/Redis、认证/Watchlist、RPC resilience、可观测性、依赖/密钥扫描治理、环境/回滚、备份恢复契约、保留/删除规则以及公开隐私/条款/风险/支持边界。下一阶段是 Milestone 5：真实发布验证与全项目退出审计，不把仓库配置冒充成云端证据。
 
-Milestone 4 对用户属于新的知识领域，已建立独立延后课程 `docs/learning/MILESTONE_4_COURSE.md`。当前优先完成项目；用户下次要求“学习第四阶段”时从该课程第 1 课开始，用具象场景 → 业界边界 → 项目代码 → 小练习的顺序讲解。第四批可观测性已经完成；第五批把已知依赖公告归零并建立 CI dependency/secret gate，远端工作流与 Branch Protection 仍需要推送和 GitHub 配置证据。
+Milestone 4 对用户属于新的知识领域，已建立独立延后课程 `docs/learning/MILESTONE_4_COURSE.md`。当前优先完成项目；用户下次要求“学习第四阶段”时从该课程第 1 课开始，用具象场景 → 业界边界 → 项目代码 → 小练习的顺序讲解。远端工作流、Branch Protection、真实恢复演练与告警送达仍需要推送和部署平台证据。
 
 ## 已完成
 
@@ -63,14 +63,18 @@ Milestone 4 对用户属于新的知识领域，已建立独立延后课程 `doc
 - Milestone 4 第四批已建立结构化脱敏 Route 日志、服务端 request ID、OpenTelemetry trace/metric 接入和 Next server error hook；日志类型不接受任意 metadata，不记录异常 message/stack、请求体、Cookie、地址、Hash 或 RPC URL。新增 PostgreSQL/Redis/RPC 聚合就绪检查、版本化告警规则与故障 runbook；真实监控平台接收人和告警送达仍需部署环境证据。
 - Milestone 4 第五批已升级存在公告的 Next.js、WalletConnect、Wagmi、Viem 与构建依赖，并用精确 transitive override 消除上游暂未提升的安全版本；当前完整 npm audit 为零。CI 使用 Node 24、不可变 Action SHA、锁文件安装、生产构建、PR Dependency Review 和完整历史 Gitleaks 扫描；Dependabot、安装脚本精确版本许可和供应链处置文档同步落库。
 - Milestone 4 第六批已建立 Preview/Staging/Production 显式配置和 release preflight：部署环境绑定 HTTPS Origin、不可变 Git SHA、Next deployment ID、强认证密钥、持久化模式、WalletConnect/RPC 与可观测性出口；Staging/Production 缺任一受支持链独立 RPC fallback 会拒绝发布。Next.js 输出 standalone Node 24 容器，liveness 与 readiness 分离，结构化日志携带脱敏环境和 release 身份；发布顺序、expand/contract migration、前一镜像 digest 回滚和显式 legacy-cookie 紧急降级均已文档化。
+- Milestone 4 最终批已建立完整数据生命周期：Migration 把用户关联数据改为可控级联删除，同时保留独立风险历史的 intent 可空关系；保留任务以 30 天清理失效 Session/废弃意图、365 天清理交易与风险历史，并要求预览和精确环境确认。账户删除要求同源、已认证 PostgreSQL Session 和固定确认文字，数据库成功后才清 Cookie、Query cache 与 `web3-lab:*` 本地数据，且明确链上记录不可删除。
+- Milestone 4 最终批已建立备份/恢复与公开运营边界：文档定义 PostgreSQL PITR/快照、15 分钟 RPO、4 小时 RTO、35 天备份保留和季度隔离 Staging restore drill；严格证据解析器要求迁移 checksum、聚合数量、外键、readiness 与销毁全部通过。发布预检要求运营方与支持邮箱，首页公开链接隐私、条款、风险披露和支持页面；真实云备份、法律审查和演练证据仍须外部完成。
 
 ## 当前未提交业务文件
 
-Milestone 4 第一至五批业务代码与恢复文档均已提交，第六批已完成、待本批提交。`docs/PRODUCT_SPEC.md` 与
+Milestone 4 第一至六批已提交，最终数据生命周期批次已完成并通过本地退出验证。`docs/PRODUCT_SPEC.md` 与
 `docs/PRODUCTION_ROADMAP.md` 是此前已有的未跟踪产品文档，不属于本批，继续保持未提交。
 
 ## 最近完成的业务提交
 
+- `f77e285 feat: add deployment release boundaries`
+- `4e0ab66 docs: checkpoint milestone four operations`
 - `495f6b5 feat: add production backend operations`
 - `6c4fb1c docs: close milestone three code phase`
 - `34186ed feat: complete wallet safety evidence`
@@ -356,9 +360,15 @@ Next.js 16.3.4 按仓库内官方文档启用 `output: standalone` 与 deploymen
 
 第六批最终本地证据：全仓 69 个测试文件、425 项通过，另有 1 个文件中的 2 项真实 PostgreSQL/Redis 集成测试显式跳过；TypeScript、ESLint、YAML 解析、Diff 检查、release preflight 和 Next.js 16.3.4 Webpack production standalone build 通过。standalone `server.js` 已实际启动：liveness 返回 200，readiness 返回 staging/release 身份并在公共 RPC 部分超时时诚实报告 degraded；日志同时携带安全环境/release 字段。机器没有 Docker/Podman，故未声称真实镜像 build；云端环境、GitHub Environment 审批、真实数据库 migration、告警送达、DNS/TLS 和不可变镜像回滚仍需外部部署证据。
 
+Milestone 4 最终批不把“数据库里有数据”当成“可以无限保留”，也不把删除应用数据包装成删除区块链。`0002_data_lifecycle.sql` 让删除 user 时 ownership graph 由数据库级联约束清理；删除旧 intent 时只把仍在保留期内的风险报告 `intent_id` 置空。Retention 先输出聚合 preview，只有 `--apply` 和精确环境确认同时存在才执行，使用单事务和全局 advisory lock 防止重复任务并发运行。用户删除使用 user-scoped lock，服务端数据库删除失败时 Cookie 与本地恢复数据都保留，避免 UI 假装已经成功。
+
+备份 runbook 明确 PostgreSQL 才是持久事实源，Redis 只重建短期协调状态。机器可校验的 restore evidence 只接受固定字段，要求加密、隔离 Staging、migration checksum、聚合数量、外键、readiness、RPO/RTO 与临时环境销毁全部通过；它不保存连接串或用户记录。公开页面与 release gate 同时要求真实运营方和支持联系人，并明确非托管、模拟、Receipt、授权、部分成功和 AI 覆盖限制。
+
+最终批本地证据：全仓 76 个测试文件、448 项通过，另有 1 个文件中的 2 项真实 PostgreSQL/Redis 集成测试因本机没有服务显式跳过；TypeScript、ESLint、YAML、脚本语法、Diff 检查、Staging release preflight 和 Next.js 16.3.4 Webpack production standalone build 通过。构建包含 `/api/account` 与四个公开政策页面；静态解析仍保留未启用 Wagmi connector 的既有 warning。机器没有 Docker/Podman、真实 PostgreSQL/Redis 或云备份 Provider，所以不声称镜像构建、级联集成测试、PITR、restore drill、法律审查或远端 workflow 已经发生。
+
 ## 下一步
 
-Milestone 4 第一至五批已提交，第六批环境/回滚代码已完成验证并进入提交。下一代码批次是 Milestone 4 最后一项：备份、恢复演练、保留/删除规则、隐私/条款/风险披露和支持流程。GitHub workflow、Gitleaks、受保护环境和真实服务集成仍须推送后由远端系统产生证据，不在本地伪造。Milestone 2/3/4 的集中学习继续保留到用户要求时再进行。
+Milestone 4 本地代码阶段结束。下一步进入 Milestone 5：先做全项目发布前差距审计，再执行能够在本地完成的发布验证；真实 GitHub workflow、Gitleaks、受保护环境、PostgreSQL/Redis migration、备份恢复、告警送达、DNS/TLS 与钱包测试网交易必须由远端环境产生证据，不在本地伪造。Milestone 2/3/4 的集中学习继续保留到用户要求时再进行。
 
 ## 工作约束
 

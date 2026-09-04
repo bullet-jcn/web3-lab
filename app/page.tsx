@@ -12,6 +12,7 @@ import { WalletConnectPanel } from '@/components/wallet/WalletConnectPanel'
 import { MultiChainBalances } from '@/components/wallet/MultiChainBalances'
 import WatchlistPanel from '@/components/watchlist/WatchlistPanel'
 import SignInWithEthereum from '@/components/auth/SignInWithEthereum'
+import Link from 'next/link'
 import {
   ArrowLeftRight,
   Bot,
@@ -128,7 +129,12 @@ export default function Home() {
 
         <footer className="mt-10 flex flex-col gap-3 border-t border-foreground/8 py-6 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
           <p className="flex items-center gap-2"><ShieldCheck className="size-4 text-emerald-700 dark:text-emerald-300" /> 非托管 · 所有交易均由你的钱包确认</p>
-          <p className="font-mono">POWERED BY WAGMI / VIEM / SHADCN</p>
+          <div className="flex flex-wrap gap-x-4 gap-y-2">
+            <Link href="/privacy" className="hover:text-foreground">隐私</Link>
+            <Link href="/terms" className="hover:text-foreground">条款</Link>
+            <Link href="/risk-disclosure" className="hover:text-foreground">风险披露</Link>
+            <Link href="/support" className="hover:text-foreground">支持</Link>
+          </div>
         </footer>
       </div>
     </main>

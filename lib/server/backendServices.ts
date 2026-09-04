@@ -7,6 +7,7 @@ import {
   PostgresSessionRepository,
   PostgresWatchlistRepository,
 } from './db/repositories'
+import { PostgresDataLifecycleRepository } from './dataLifecycle'
 import { getRedis } from './redis/client'
 import { RedisCoordinator } from './redis/coordinator'
 
@@ -34,4 +35,9 @@ export async function getBackendSessionService(): Promise<BackendSessionService>
 export async function getBackendWatchlistRepository(): Promise<PostgresWatchlistRepository> {
   const { database } = await dependencies()
   return new PostgresWatchlistRepository(database, database)
+}
+
+export async function getBackendDataLifecycleRepository(): Promise<PostgresDataLifecycleRepository> {
+  const { database } = await dependencies()
+  return new PostgresDataLifecycleRepository(database, database)
 }

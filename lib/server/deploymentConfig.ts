@@ -109,6 +109,17 @@ function requirePublicIdentifier(name: string, value: string | undefined): void 
   }
 }
 
+function requirePublicContact(env: Record<string, string | undefined>): void {
+  const operatorName = env.NEXT_PUBLIC_OPERATOR_NAME?.trim()
+  if (!operatorName || operatorName.length > 100 || /[\u0000-\u001f\u007f]/u.test(operatorName)) {
+    throw new Error('NEXT_PUBLIC_OPERATOR_NAME must be configured for release')
+  }
+  const supportEmail = env.NEXT_PUBLIC_SUPPORT_EMAIL?.trim()
+  if (!supportEmail || supportEmail.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(supportEmail)) {
+    throw new Error('NEXT_PUBLIC_SUPPORT_EMAIL must be configured for release')
+  }
+}
+
 function requireHttpsUrl(name: string, value: string | undefined): void {
   if (!value) throw new Error(`${name} must be configured for release`)
   let url: URL
@@ -178,6 +189,7 @@ export function assertReleasePreflight(
     'NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID',
     env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID,
   )
+  requirePublicContact(env)
 
   let independentRpcFallbacks = 0
   for (const name of FALLBACK_RPC_ENV_NAMES) {
