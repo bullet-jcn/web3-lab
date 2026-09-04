@@ -7,16 +7,25 @@ ID, the fixed route template, method, status, duration and a bounded dependency 
 carry the same `X-Request-Id` and a `Server-Timing` duration. OpenTelemetry adds framework traces and
 the same low-cardinality route metrics when an exporter is configured.
 
+Deployed records use `DEPLOYMENT_ENVIRONMENT` (`preview`, `staging`, or `production`) rather than
+collapsing every optimized Next.js runtime into `production`, and attach the bounded `RELEASE_ID` so
+operators can correlate the first failing version. Neither field contains a user identifier.
+
 The logger intentionally has no generic metadata object. It cannot accept headers, cookies, request
 bodies, wallet addresses, transaction hashes, calldata, signatures, upstream response bodies,
 exception messages or stacks. Exceptions become only a bounded class name such as `TypeError`.
 Automatic outbound fetch instrumentation is disabled because browser-facing RPC credentials can
 appear in URL paths. Provider health continues to expose only registered provider IDs and names.
 
-`GET /api/health/ready` is the load-balancer/readiness probe. In `postgres` mode it checks PostgreSQL,
+`GET /api/health/live` is the process liveness probe and intentionally does not contact dependencies.
+`GET /api/health/ready` is the load-balancer/readiness probe. It first validates the explicit
+environment/origin/release identity; in `postgres` mode it then checks PostgreSQL,
 Redis and the critical RPC chain; in explicit `legacy-cookie` rollback mode PostgreSQL and Redis are
 reported as `not_required`. `GET /api/health/rpc` remains the detailed redacted provider probe. Both
 responses are cached briefly and return 503 only when a required component is unhealthy.
+
+Liveness may drive process restart. Readiness should remove an instance from traffic and block
+promotion, not restart every instance because an external database or RPC service is unavailable.
 
 ## Export and alert activation
 

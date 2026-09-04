@@ -1,17 +1,17 @@
 # web3-lab
 
-A Next.js + wagmi/viem dApp that goes past "connect wallet, show balance": Sign-In with Ethereum, a stateless signed-cookie session, a session-gated watchlist, and an EIP-5792 atomic batch-transfer demo with an honest non-atomic fallback.
+A production-oriented Next.js + wagmi/viem wallet companion: Sign-In with Ethereum, revocable sessions, a database-backed watchlist, transaction-safety workflows, and EIP-5792 atomic batching with an honest non-atomic fallback.
 
-基于 Next.js + wagmi/viem 构建，不止于"连钱包、查余额"——包含 SIWE 登录、无数据库的自包含签名 cookie 会话、需要登录才能用的关注列表，以及 EIP-5792 原子批量转账（带诚实的非原子降级方案）。
+基于 Next.js + wagmi/viem 构建的生产导向钱包伴侣：包含 SIWE 登录、可撤销会话、数据库关注列表、交易安全流程，以及带诚实非原子降级的 EIP-5792 原子批量调用。
 
 ## Features 功能
 
 - **Wallet selection / multi-chain balances** — explicit injected-wallet or WalletConnect selection, honest connecting/reconnecting/rejection states, Sepolia + Ethereum mainnet switching, and per-chain balances via `useQueries`. WalletConnect is registered only when a public Reown project ID is configured.
   钱包选择与多链余额——明确选择浏览器钱包或 WalletConnect，区分连接中、恢复中和拒绝状态；支持 Sepolia / Ethereum 切链，并用 `useQueries` 并行查询每条链。只有配置公开的 Reown project ID 后才注册 WalletConnect。
-- **Sign-In with Ethereum (EIP-4361)** — nonce issuance → wallet signature → server-side verification via `viem/siwe`, backed by a stateless HMAC-signed session cookie (no database).
-  SIWE 登录——签发 nonce → 钱包签名 → 服务端用 `viem/siwe` 验证，会话是无数据库的 HMAC 签名 cookie。
-- **Session-gated watchlist** — add/remove watched addresses, persisted the same way as the session (signed cookie, scoped per address).
-  登录后才能用的关注列表——增删关注地址，用同一套签名 cookie 机制持久化（按地址隔离）。
+- **Sign-In with Ethereum (EIP-4361)** — Redis one-time nonce → wallet signature → server-side verification via `viem/siwe` → opaque revocable session whose token hash is stored in PostgreSQL. The original signed-cookie implementation remains an explicit emergency rollback mode.
+  SIWE 登录——Redis 一次性 nonce → 钱包签名 → 服务端用 `viem/siwe` 验证 → PostgreSQL 只保存 token hash 的不透明可撤销会话；旧签名 Cookie 仅保留为显式紧急回滚模式。
+- **Session-gated watchlist** — add/remove chain-scoped watched addresses in PostgreSQL with transactional ownership and capacity constraints.
+  登录后才能使用的关注列表——按用户和链写入 PostgreSQL，并以事务保证所有权、去重和容量边界。
 - **EIP-5792 atomic batch transfer** — detects wallet capability via `useCapabilities`, submits two ERC20 transfers as one atomic `useSendCalls` batch when supported, and explicitly falls back to two sequential (non-atomic) transactions — with the UI stating plainly that a mid-sequence failure won't roll back the first transfer.
   EIP-5792 原子批量转账——用 `useCapabilities` 检测钱包能力，支持则把两笔 ERC20 转账合并成一次原子 `useSendCalls`；不支持则显式降级为两笔顺序交易，并在 UI 上明确说明"第二笔失败不会撤销第一笔"。
 - **ERC20 / native ETH transfer** — validated address/ENS/address-book/clipboard input, decimal-safe amounts, balances and gas budgets, an exact review snapshot, receipt/replacement tracking across refreshes, and explorer evidence.
@@ -31,6 +31,9 @@ A Next.js + wagmi/viem dApp that goes past "connect wallet, show balance": Sign-
 | Testing 测试 | Vitest + Testing Library |
 | Language 语言 | TypeScript |
 | AI / LLM | Google Gemini API (`@google/genai`) |
+| Durable state | PostgreSQL |
+| Coordination | Redis |
+| Operations | OpenTelemetry + structured redacted logs |
 
 ## Directory structure 目录结构
 
@@ -67,11 +70,11 @@ lib/
 
 ## Design decisions 设计取舍
 
-### Stateless signed cookies instead of a database 无数据库的签名 cookie 会话
+### Durable sessions with an explicit rollback mode 可撤销会话与显式回滚模式
 
-The session (and the watchlist) is a self-contained cookie, HMAC-signed with Node's built-in `crypto`, not a row in a database. A `purpose` string is mixed into the HMAC input as a domain separator, so a nonce cookie can't be replayed as a session cookie even with the same secret, and the watchlist cookie is scoped to the owner's address so it can't be swapped between users. This keeps the whole auth layer serverless/Vercel-friendly with zero infrastructure — the explicit tradeoff is a ~4KB cookie size ceiling (the watchlist caps at 20 addresses) and no way to revoke a session before it expires short of rotating the secret. A production system handling real money would put sessions in a database or Redis instead, precisely to get instant revocation.
+Production mode uses Redis for consume-once SIWE nonces and fast revocation checks, while PostgreSQL is the durable source of truth for opaque session-token hashes and chain-scoped Watchlists. A dependency outage fails closed instead of silently treating missing state as authenticated or empty. The earlier signed-cookie implementation remains available only through explicit `BACKEND_STORAGE_MODE=legacy-cookie` incident rollback; switching formats may require users to sign in again and does not expose PostgreSQL Watchlists until normal mode returns.
 
-会话(以及关注列表)是一个自包含的签名 cookie,用 Node 内置的 `crypto` 做 HMAC 签名,不是数据库里的一行记录。HMAC 输入里混入了一个 `purpose` 字符串作为"域隔离"——同一个密钥签出来的 nonce cookie 不能被冒充成 session cookie,关注列表 cookie 也绑定了 owner 地址,不能被跨用户挪用。这样整个鉴权层完全无状态,可以直接跑在 serverless/Vercel 上,不需要额外的基础设施——明确的代价是 cookie 大小上限(~4KB,关注列表因此设了 20 个地址的上限),以及没法在过期前主动撤销某个 session(除非轮换密钥)。真正涉及资金的生产系统,这里应该换成数据库或 Redis 存 session,为的就是能立即撤销。
+生产模式使用 Redis 保存可原子消费的 SIWE nonce 和撤销快速路径，PostgreSQL 则作为不透明 Session token hash 与按链 Watchlist 的长期事实源。依赖故障时系统 fail closed，不会把“查不到”静默解释成已认证或空数据。旧签名 Cookie 只通过显式 `BACKEND_STORAGE_MODE=legacy-cookie` 用于事故回滚；切换格式可能要求用户重新登录，恢复正常模式前也不会假装能读取 PostgreSQL Watchlist。
 
 ### EIP-5792 capability detection, not silent fallback EIP-5792 能力检测,而不是悄悄降级
 
@@ -116,8 +119,8 @@ Covered: signed-cookie and SIWE boundaries, watchlist behavior, EIP-5792 capabil
   EIP-5792 的原子路径还没有用真实支持原子批量的钱包完整手动测过(目前实际连过的只有顺序降级路径)——单测覆盖的是能力判断的归约逻辑,不是一次真实的原子交易。
 - The WalletConnect connector and selection/failure states are covered by component tests and production builds, but a real QR pairing still requires a project-specific Reown ID and manual mobile-wallet evidence; this repository does not claim that live pairing evidence yet.
   WalletConnect connector、选择和失败状态已有组件测试及生产构建证据，但真实二维码配对仍需要项目自己的 Reown ID 和移动钱包手动证据；仓库目前不声称已经完成这项真实配对验证。
-- Watchlist is capped at 20 addresses by the ~4KB cookie size limit, and there's no way to revoke a session before it expires other than rotating `AUTH_COOKIE_SECRET` (which invalidates every session at once).
-  关注列表因为 cookie ~4KB 的大小限制,上限是 20 个地址;而且没法只撤销某一个 session,除非轮换 `AUTH_COOKIE_SECRET`(会让所有 session 一起失效)。
+- Preview/staging/production configuration, standalone container output and rollback gates are present, but no real cloud URL, alert-delivery incident, backup restore, or production wallet evidence is claimed until those external checks run.
+  仓库已具备 Preview/Staging/Production 配置边界、standalone 容器产物与回滚门禁，但在真实外部验证发生前，不声称已有云端 URL、告警送达、备份恢复或生产钱包证据。
 - Only one risk rule is implemented so far (unlimited ERC20 `approve`) — an intentionally narrow, honestly-scoped MVP, not a claim of comprehensive risk coverage. Adding a new rule means adding a new case to `assessRisk()`; the AI-phrasing layer needs no changes.
   目前只实现了一条风险规则(无限额度 ERC20 `approve`)——这是刻意做小、诚实标注范围的 MVP,不是"全面风险覆盖"的承诺。加一条新规则只需要在 `assessRisk()` 里加一个分支,AI 转述那层完全不用改。
 

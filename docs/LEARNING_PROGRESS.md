@@ -4,7 +4,7 @@
 
 ## 当前目标
 
-Milestone 2 / Batch C 与 Milestone 3 的支持范围代码实现和自动化退出审计已经完成。按用户决定，学习暂缓但不删除。Milestone 4 后端与运维继续代码优先：PostgreSQL/Redis、认证/Watchlist、RPC resilience、可观测性以及依赖/密钥扫描治理已实现；第一至五批代码已提交，下一批进入部署环境与回滚边界。
+Milestone 2 / Batch C 与 Milestone 3 的支持范围代码实现和自动化退出审计已经完成。按用户决定，学习暂缓但不删除。Milestone 4 后端与运维继续代码优先：PostgreSQL/Redis、认证/Watchlist、RPC resilience、可观测性、依赖/密钥扫描治理以及部署环境/回滚边界已实现；第一至五批已提交，第六批代码已完成验证，下一批进入备份与数据政策。
 
 Milestone 4 对用户属于新的知识领域，已建立独立延后课程 `docs/learning/MILESTONE_4_COURSE.md`。当前优先完成项目；用户下次要求“学习第四阶段”时从该课程第 1 课开始，用具象场景 → 业界边界 → 项目代码 → 小练习的顺序讲解。第四批可观测性已经完成；第五批把已知依赖公告归零并建立 CI dependency/secret gate，远端工作流与 Branch Protection 仍需要推送和 GitHub 配置证据。
 
@@ -62,10 +62,11 @@ Milestone 4 对用户属于新的知识领域，已建立独立延后课程 `doc
 - Milestone 4 第三批已建立四条支持链的 RPC Provider Registry：有效 Alchemy、显式独立 fallback 与 Viem chain public emergency provider 按顺序组成有界 fallback；每个 Provider 5 秒 timeout、零同源 retry、全列表只尝试一轮，确定性 revert 不 fallback。新增脱敏 `/api/health/rpc`、10 秒 single-flight cache，并让 CSP 从 Registry 生成无路径/无 key 的 provider origin。
 - Milestone 4 第四批已建立结构化脱敏 Route 日志、服务端 request ID、OpenTelemetry trace/metric 接入和 Next server error hook；日志类型不接受任意 metadata，不记录异常 message/stack、请求体、Cookie、地址、Hash 或 RPC URL。新增 PostgreSQL/Redis/RPC 聚合就绪检查、版本化告警规则与故障 runbook；真实监控平台接收人和告警送达仍需部署环境证据。
 - Milestone 4 第五批已升级存在公告的 Next.js、WalletConnect、Wagmi、Viem 与构建依赖，并用精确 transitive override 消除上游暂未提升的安全版本；当前完整 npm audit 为零。CI 使用 Node 24、不可变 Action SHA、锁文件安装、生产构建、PR Dependency Review 和完整历史 Gitleaks 扫描；Dependabot、安装脚本精确版本许可和供应链处置文档同步落库。
+- Milestone 4 第六批已建立 Preview/Staging/Production 显式配置和 release preflight：部署环境绑定 HTTPS Origin、不可变 Git SHA、Next deployment ID、强认证密钥、持久化模式、WalletConnect/RPC 与可观测性出口；Staging/Production 缺任一受支持链独立 RPC fallback 会拒绝发布。Next.js 输出 standalone Node 24 容器，liveness 与 readiness 分离，结构化日志携带脱敏环境和 release 身份；发布顺序、expand/contract migration、前一镜像 digest 回滚和显式 legacy-cookie 紧急降级均已文档化。
 
 ## 当前未提交业务文件
 
-Milestone 4 第一至五批业务代码与恢复文档均已提交。`docs/PRODUCT_SPEC.md` 与
+Milestone 4 第一至五批业务代码与恢复文档均已提交，第六批已完成、待本批提交。`docs/PRODUCT_SPEC.md` 与
 `docs/PRODUCTION_ROADMAP.md` 是此前已有的未跟踪产品文档，不属于本批，继续保持未提交。
 
 ## 最近完成的业务提交
@@ -349,9 +350,15 @@ CI 与 Security 分离：CI 证明锁文件安装、migration、lint、类型、
 
 Milestone 4 第五批最终自动化证据：全仓 67 个测试文件、409 项通过；另有 1 个文件中的 2 项真实 PostgreSQL/Redis 集成测试按本机缺少 runtime 显式跳过。TypeScript、ESLint、YAML 解析、Diff 检查和两档联网 npm audit 通过，生产与完整依赖均为 0 个已知公告。Next.js 16.3.4 的 Webpack production build 完成全部编译、类型、页面生成和 trace；当前受控执行环境禁止 Turbopack 的 PostCSS 子进程绑定本地端口，因此默认 Turbopack build 仍须由 GitHub Runner 证明。构建保留 Viem/Wagmi 未启用可选 connector 的静态解析 warning，没有为消除 warning 安装未使用 SDK。
 
+Milestone 4 第六批不把 `NODE_ENV=production` 当成环境隔离：Preview、Staging、Production 都运行优化构建，因此新增 `DEPLOYMENT_ENVIRONMENT` 表达运营环境，并以 `RELEASE_ID`、`NEXT_DEPLOYMENT_ID` 和精确 `APP_ORIGIN` 绑定一次不可变发布。发布预检只输出非敏感证据；正常发布必须使用 PostgreSQL 模式、强随机认证密钥、真实 WalletConnect/Alchemy 标识和明确监控出口，Staging/Production 还必须为四条支持链各配置独立 fallback。`legacy-cookie` 只有带显式 CLI 例外的事故回滚才能通过。
+
+Next.js 16.3.4 按仓库内官方文档启用 `output: standalone` 与 deployment ID version-skew 防护。容器分 build/runtime stage、使用 Node 24、非 root 用户，只把 `NEXT_PUBLIC_*` 作为构建参数；数据库、Redis、认证和遥测凭据只允许运行时注入。迁移文件和 runner 被包含在镜像中但不会在每个应用副本启动时自动执行，发布系统必须以单独受保护任务执行一次并依靠 checksum/advisory lock。`/api/health/live` 只证明进程能回答 HTTP；`/api/health/ready` 同时验证 deployment identity 与必要依赖，外部依赖故障应摘除流量而不是制造重启风暴。
+
+第六批最终本地证据：全仓 69 个测试文件、425 项通过，另有 1 个文件中的 2 项真实 PostgreSQL/Redis 集成测试显式跳过；TypeScript、ESLint、YAML 解析、Diff 检查、release preflight 和 Next.js 16.3.4 Webpack production standalone build 通过。standalone `server.js` 已实际启动：liveness 返回 200，readiness 返回 staging/release 身份并在公共 RPC 部分超时时诚实报告 degraded；日志同时携带安全环境/release 字段。机器没有 Docker/Podman，故未声称真实镜像 build；云端环境、GitHub Environment 审批、真实数据库 migration、告警送达、DNS/TLS 和不可变镜像回滚仍需外部部署证据。
+
 ## 下一步
 
-Milestone 4 第一至五批已完成验证和代码提交 `495f6b5`。下一代码批次进入环境/回滚；之后继续备份与数据政策。GitHub workflow、Gitleaks 和真实服务集成测试仍须推送后由远端 Runner 产生证据，不在本地伪造。Milestone 2/3/4 的集中学习继续保留到用户要求时再进行。
+Milestone 4 第一至五批已提交，第六批环境/回滚代码已完成验证并进入提交。下一代码批次是 Milestone 4 最后一项：备份、恢复演练、保留/删除规则、隐私/条款/风险披露和支持流程。GitHub workflow、Gitleaks、受保护环境和真实服务集成仍须推送后由远端系统产生证据，不在本地伪造。Milestone 2/3/4 的集中学习继续保留到用户要求时再进行。
 
 ## 工作约束
 

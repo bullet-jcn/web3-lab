@@ -22,4 +22,8 @@ describe('security headers', () => {
     expect(csp).not.toContain('/v2/')
     expect(csp).not.toContain('undefined')
   })
+
+  it('produces a minimal self-hosted runtime artifact', () => {
+    expect(nextConfig.output).toBe('standalone')
+  })
 })

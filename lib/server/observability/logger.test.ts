@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { buildStructuredLog } from './logger'
+
+afterEach(() => {
+  vi.unstubAllEnvs()
+})
 
 describe('structured observability log', () => {
   it('keeps only bounded operational fields', () => {
@@ -53,5 +57,19 @@ describe('structured observability log', () => {
     expect(record).not.toHaveProperty('method')
     expect(record).not.toHaveProperty('provider_id')
     expect(record).not.toHaveProperty('error_digest')
+  })
+
+  it('correlates deployed logs with a bounded environment and release', () => {
+    vi.stubEnv('DEPLOYMENT_ENVIRONMENT', 'staging')
+    vi.stubEnv('RELEASE_ID', 'a'.repeat(40))
+
+    expect(buildStructuredLog({
+      level: 'info',
+      event: 'service.readiness',
+      outcome: 'success',
+    })).toMatchObject({
+      environment: 'staging',
+      release_id: 'a'.repeat(40),
+    })
   })
 })

@@ -28,6 +28,30 @@ describe('service readiness', () => {
     expect(redisCheck).toHaveBeenCalledOnce()
   })
 
+  it('includes non-secret deployment identity in readiness evidence', async () => {
+    const report = await probeServiceReadiness({
+      deploymentConfig: () => ({
+        environment: 'staging',
+        releaseId: 'a'.repeat(40),
+        appOrigin: 'https://staging.example.com',
+        nextDeploymentId: 'a'.repeat(40),
+        storageMode: 'postgres',
+      }),
+      databaseCheck: async () => undefined,
+      redisCheck: async () => undefined,
+      rpcCheck: async () => 'healthy',
+      now: () => 1,
+    })
+
+    expect(report).toMatchObject({
+      status: 'healthy',
+      environment: 'staging',
+      releaseId: 'a'.repeat(40),
+      storageMode: 'postgres',
+    })
+    expect(report).not.toHaveProperty('appOrigin')
+  })
+
   it('does not probe persistence dependencies in explicit legacy mode', async () => {
     const databaseCheck = vi.fn()
     const redisCheck = vi.fn()
@@ -75,5 +99,26 @@ describe('service readiness', () => {
       checks: [{ id: 'configuration', status: 'unhealthy' }],
     })
     expect(report).not.toHaveProperty('storageMode')
+  })
+
+  it('fails readiness before dependency probes when deployment identity is invalid', async () => {
+    const databaseCheck = vi.fn()
+    const redisCheck = vi.fn()
+    const rpcCheck = vi.fn()
+    const report = await probeServiceReadiness({
+      deploymentConfig: () => { throw new Error('invalid release identity') },
+      databaseCheck,
+      redisCheck,
+      rpcCheck,
+      now: () => 1,
+    })
+
+    expect(report).toMatchObject({
+      status: 'unhealthy',
+      checks: [{ id: 'configuration', status: 'unhealthy' }],
+    })
+    expect(databaseCheck).not.toHaveBeenCalled()
+    expect(redisCheck).not.toHaveBeenCalled()
+    expect(rpcCheck).not.toHaveBeenCalled()
   })
 })

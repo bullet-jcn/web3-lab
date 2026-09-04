@@ -12,6 +12,8 @@ export const securityHeaders = [
 ] as const
 
 const nextConfig: NextConfig = {
+  output: 'standalone',
+  deploymentId: process.env.NEXT_DEPLOYMENT_ID,
   async headers() {
     return [{ source: '/:path*', headers: [...securityHeaders] }]
   },

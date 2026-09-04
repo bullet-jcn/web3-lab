@@ -165,8 +165,14 @@ PostgreSQL/Redis/RPC 就绪检查、版本化告警规则与故障 runbook。监
 不可变 SHA 固定、Dependabot 周期更新和依赖安装脚本精确版本许可。安全工作流只有推送到 GitHub
 并执行后才能成为远端证据；Branch Protection 仍需仓库管理员配置为必需检查。
 
-尚未开始：部署环境、备份与数据政策。当前只有应用级
-存储模式回滚，尚不等于完整发布/数据库回滚方案。
+已实现：Preview/Staging/Production 环境身份、release preflight、Next standalone 容器边界、
+liveness/readiness 分离、release-aware 日志和 provider-neutral 发布/回滚 runbook。仓库配置不等于
+真实云环境证据；GitHub Environment 审批、DNS/TLS、镜像 registry、告警送达与真实 rollback drill
+仍必须在外部环境完成。
+
+尚未开始：备份恢复演练与数据政策。当前已经定义 forward-only expand/contract migration 和前一
+不可变镜像 digest 的应用回滚，但尚未证明数据库备份可恢复，也尚未建立保留/删除、隐私/条款、
+风险披露和支持流程。
 
 ## 学完后的验收问题
 

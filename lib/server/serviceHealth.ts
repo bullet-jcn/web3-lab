@@ -1,6 +1,11 @@
 import { getDatabase } from '@/lib/server/db/client'
 import { getRedis } from '@/lib/server/redis/client'
 import { getRpcHealthReport, type RpcHealthStatus } from '@/lib/server/rpcHealth'
+import {
+  readDeploymentConfig,
+  type DeploymentConfig,
+  type DeploymentEnvironment,
+} from '@/lib/server/deploymentConfig'
 import { readBackendStorageMode, type BackendStorageMode } from '@/lib/server/storageMode'
 
 export type ServiceHealthStatus = 'healthy' | 'degraded' | 'unhealthy'
@@ -15,12 +20,15 @@ export interface ServiceCheck {
 export interface ServiceReadinessReport {
   status: ServiceHealthStatus
   checkedAt: string
+  environment?: DeploymentEnvironment
+  releaseId?: string
   storageMode?: BackendStorageMode
   timeoutMs: number
   checks: ServiceCheck[]
 }
 
 interface ReadinessOptions {
+  deploymentConfig?: () => DeploymentConfig
   storageMode?: () => BackendStorageMode
   databaseCheck?: () => Promise<void>
   redisCheck?: () => Promise<void>
@@ -95,8 +103,14 @@ export async function probeServiceReadiness(
   const checkedAt = (options.checkedAt ?? new Date()).toISOString()
 
   let storageMode: BackendStorageMode
+  let deployment: DeploymentConfig | undefined
   try {
-    storageMode = (options.storageMode ?? readBackendStorageMode)()
+    if (options.deploymentConfig || !options.storageMode) {
+      deployment = (options.deploymentConfig ?? readDeploymentConfig)()
+    }
+    storageMode = options.storageMode
+      ? options.storageMode()
+      : deployment?.storageMode ?? readBackendStorageMode()
   } catch {
     return {
       status: 'unhealthy',
@@ -132,7 +146,15 @@ export async function probeServiceReadiness(
       ? 'degraded'
       : 'healthy'
 
-  return { status, checkedAt, storageMode, timeoutMs, checks }
+  return {
+    status,
+    checkedAt,
+    environment: deployment?.environment,
+    releaseId: deployment?.releaseId,
+    storageMode,
+    timeoutMs,
+    checks,
+  }
 }
 
 const READINESS_CACHE_MS = 5_000

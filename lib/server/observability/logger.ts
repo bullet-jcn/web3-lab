@@ -29,8 +29,9 @@ export interface StructuredLogRecord {
   timestamp: string
   level: LogLevel
   service: 'web3-lab'
-  environment: 'development' | 'test' | 'production' | 'unknown'
+  environment: 'local' | 'development' | 'test' | 'preview' | 'staging' | 'production' | 'unknown'
   event: ObservabilityEvent
+  release_id?: string
   trace_id?: string
   request_id?: string
   route?: string
@@ -60,6 +61,13 @@ function errorType(error: unknown): string {
 }
 
 function environment(): StructuredLogRecord['environment'] {
+  const deployedEnvironment = process.env.DEPLOYMENT_ENVIRONMENT
+  if (
+    deployedEnvironment === 'local'
+    || deployedEnvironment === 'preview'
+    || deployedEnvironment === 'staging'
+    || deployedEnvironment === 'production'
+  ) return deployedEnvironment
   if (process.env.NODE_ENV === 'development') return 'development'
   if (process.env.NODE_ENV === 'test') return 'test'
   if (process.env.NODE_ENV === 'production') return 'production'
@@ -87,6 +95,9 @@ export function buildStructuredLog(
     environment: environment(),
     event: input.event,
   }
+
+  const safeReleaseId = boundedToken(process.env.RELEASE_ID, 64)
+  if (safeReleaseId) record.release_id = safeReleaseId
 
   const safeTraceId = boundedToken(traceId, 32)
   const safeRequestId = boundedToken(input.requestId, 64)

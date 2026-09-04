@@ -46,6 +46,10 @@ npm run db:migrate
 The credentials in `compose.yaml` are local-only defaults. Staging and production must inject
 private TLS connection URLs through their secret manager.
 
+Deployed environments must also provide an exact HTTPS `APP_ORIGIN`, immutable `RELEASE_ID`, matching
+`NEXT_DEPLOYMENT_ID` and explicit `DEPLOYMENT_ENVIRONMENT`. See `docs/DEPLOYMENT_AND_ROLLBACK.md` for
+the environment matrix, release order and rollback decision tree.
+
 ## Migration rules
 
 - Migration filenames are ordered and immutable after application.

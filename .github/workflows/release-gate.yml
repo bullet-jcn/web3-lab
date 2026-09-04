@@ -1,0 +1,77 @@
+name: Release gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Protected GitHub environment to validate
+        required: true
+        type: choice
+        options:
+          - preview
+          - staging
+          - production
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-gate-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24.x
+          cache: npm
+
+      - run: npm ci
+
+      - name: Validate environment configuration without printing secrets
+        run: npm run release:preflight
+        env:
+          NODE_ENV: production
+          DEPLOYMENT_ENVIRONMENT: ${{ inputs.environment }}
+          RELEASE_ID: ${{ github.sha }}
+          NEXT_DEPLOYMENT_ID: ${{ github.sha }}
+          APP_ORIGIN: ${{ vars.APP_ORIGIN }}
+          BACKEND_STORAGE_MODE: postgres
+          AUTH_COOKIE_SECRET: ${{ secrets.AUTH_COOKIE_SECRET }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          REDIS_URL: ${{ secrets.REDIS_URL }}
+          NEXT_PUBLIC_ALCHEMY_API_KEY: ${{ secrets.NEXT_PUBLIC_ALCHEMY_API_KEY }}
+          NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: ${{ secrets.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID }}
+          NEXT_PUBLIC_ETHEREUM_SEPOLIA_RPC_FALLBACK_URL: ${{ secrets.NEXT_PUBLIC_ETHEREUM_SEPOLIA_RPC_FALLBACK_URL }}
+          NEXT_PUBLIC_ETHEREUM_MAINNET_RPC_FALLBACK_URL: ${{ secrets.NEXT_PUBLIC_ETHEREUM_MAINNET_RPC_FALLBACK_URL }}
+          NEXT_PUBLIC_BASE_SEPOLIA_RPC_FALLBACK_URL: ${{ secrets.NEXT_PUBLIC_BASE_SEPOLIA_RPC_FALLBACK_URL }}
+          NEXT_PUBLIC_BASE_MAINNET_RPC_FALLBACK_URL: ${{ secrets.NEXT_PUBLIC_BASE_MAINNET_RPC_FALLBACK_URL }}
+          OBSERVABILITY_DELIVERY: ${{ vars.OBSERVABILITY_DELIVERY }}
+          OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
+
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test
+      - run: npm run build
+        env:
+          NEXT_DEPLOYMENT_ID: ${{ github.sha }}
+          NEXT_PUBLIC_ALCHEMY_API_KEY: ${{ secrets.NEXT_PUBLIC_ALCHEMY_API_KEY }}
+          NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: ${{ secrets.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID }}
+          NEXT_PUBLIC_ETHEREUM_SEPOLIA_RPC_FALLBACK_URL: ${{ secrets.NEXT_PUBLIC_ETHEREUM_SEPOLIA_RPC_FALLBACK_URL }}
+          NEXT_PUBLIC_ETHEREUM_MAINNET_RPC_FALLBACK_URL: ${{ secrets.NEXT_PUBLIC_ETHEREUM_MAINNET_RPC_FALLBACK_URL }}
+          NEXT_PUBLIC_BASE_SEPOLIA_RPC_FALLBACK_URL: ${{ secrets.NEXT_PUBLIC_BASE_SEPOLIA_RPC_FALLBACK_URL }}
+          NEXT_PUBLIC_BASE_MAINNET_RPC_FALLBACK_URL: ${{ secrets.NEXT_PUBLIC_BASE_MAINNET_RPC_FALLBACK_URL }}
+
+      - name: Record safe release-gate evidence
+        run: |
+          echo "### Release gate" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Environment: ${{ inputs.environment }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Release: ${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Result: configuration, lint, types, tests, and production build passed" >> "$GITHUB_STEP_SUMMARY"
